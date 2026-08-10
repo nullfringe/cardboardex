@@ -1,0 +1,222 @@
+import { z } from "zod";
+
+import { getDatabase, type AppDatabase } from "@/db/client";
+import { CollectionRepository } from "@/lib/repositories/collection-repository";
+import type {
+  CollectionDetail,
+  CollectionFacets,
+  CollectionListItem,
+  CollectionListQuery,
+  CreateCollectionEntryInput,
+  UpdateOwnedCardInput,
+} from "@/lib/types/collection";
+
+const requiredText = (label: string, maximum = 200) =>
+  z
+    .string({ error: `${label} must be text.` })
+    .trim()
+    .min(1, `${label} is required.`)
+    .max(maximum, `${label} is too long.`);
+
+const nullableText = (label: string, maximum = 10_000) =>
+  z
+    .union([z.string({ error: `${label} must be text or null.` }), z.null()])
+    .optional()
+    .transform((value) => {
+      if (value === undefined || value === null) return value;
+      const trimmed = value.trim();
+      return trimmed.length > 0 ? trimmed : null;
+    })
+    .refine(
+      (value) =>
+        value === undefined || value === null || value.length <= maximum,
+      {
+        message: `${label} is too long.`,
+      },
+    );
+
+const optionalFilterText = (maximum = 200) =>
+  z
+    .string()
+    .max(maximum)
+    .optional()
+    .transform((value) => {
+      const trimmed = value?.trim();
+      return trimmed ? trimmed : undefined;
+    });
+
+const nullableUrl = (label: string) =>
+  nullableText(label, 2_048).refine(
+    (value) => {
+      if (value === undefined || value === null) return true;
+      try {
+        const url = new URL(value);
+        return url.protocol === "http:" || url.protocol === "https:";
+      } catch {
+        return false;
+      }
+    },
+    { message: `${label} must be an HTTP(S) URL.` },
+  );
+
+function slugify(value: string): string {
+  return value
+    .normalize("NFKC")
+    .toLocaleLowerCase("en-US")
+    .replace(/[^a-z0-9]+/g, "-")
+    .replace(/^-|-$/g, "");
+}
+
+export const collectionListQuerySchema = z
+  .object({
+    search: optionalFilterText(500),
+    gameSlug: optionalFilterText(),
+    cardKind: optionalFilterText(),
+    pokemonType: optionalFilterText(),
+    setCode: optionalFilterText(),
+    subtype: optionalFilterText(),
+    rarity: optionalFilterText(),
+    finishVariant: optionalFilterText(500),
+    sealed: z.boolean().optional(),
+    sort: z
+      .object({
+        field: z.enum([
+          "name",
+          "set",
+          "collectorNumber",
+          "pokemonType",
+          "hp",
+          "quantity",
+        ]),
+        direction: z.enum(["asc", "desc"]),
+      })
+      .strict()
+      .optional(),
+  })
+  .strict();
+
+export const updateOwnedCardSchema = z
+  .object({
+    quantity: z.number().int().positive().max(1_000_000).optional(),
+    condition: nullableText("Condition", 200),
+    finishVariant: nullableText("Finish / variant", 500),
+    sealed: z.boolean().optional(),
+    notes: nullableText("Notes"),
+  })
+  .strict()
+  .refine(
+    (value) =>
+      value.quantity !== undefined ||
+      value.condition !== undefined ||
+      value.finishVariant !== undefined ||
+      value.sealed !== undefined ||
+      value.notes !== undefined,
+    { message: "At least one owned-card field must be provided." },
+  );
+
+const attackInputSchema = z
+  .object({
+    name: requiredText("Attack name", 300),
+    cost: z.array(requiredText("Attack cost symbol", 20)).max(20).optional(),
+    damage: nullableText("Attack damage", 100),
+    effect: nullableText("Attack effect", 10_000),
+  })
+  .strict();
+
+export const createCollectionEntrySchema = z
+  .object({
+    gameSlug: requiredText("Game slug", 100)
+      .transform(slugify)
+      .pipe(z.string().min(1, "Game slug must contain letters or numbers.")),
+    gameName: requiredText("Game name", 200),
+    setCode: requiredText("Set code", 100),
+    setName: requiredText("Set name", 300),
+    name: requiredText("Card name", 300),
+    collectorNumber: requiredText("Collector number", 100),
+    printingVariantKey: requiredText("Printing variant key", 200)
+      .transform(slugify)
+      .pipe(
+        z
+          .string()
+          .min(1, "Printing variant key must contain letters or numbers."),
+      )
+      .optional(),
+    cardKind: requiredText("Card kind", 100),
+    subtype: nullableText("Subtype", 200),
+    rarity: nullableText("Rarity", 200),
+    regulationMark: nullableText("Regulation mark", 50),
+    specialRuleBox: nullableText("Special / rule box", 2_000),
+    abilityRule: nullableText("Ability / rule", 10_000),
+    rulesText: nullableText("Rules text", 20_000),
+    identificationConfidence: nullableText("Identification confidence", 100),
+    visibleMoveOrEffect1: nullableText("Visible move / effect 1", 2_000),
+    visibleMoveOrEffect2: nullableText("Visible move / effect 2", 2_000),
+    pokemonType: nullableText("Pokémon type", 100),
+    hp: z.number().int().nonnegative().max(100_000).nullable().optional(),
+    evolvesFrom: nullableText("Evolves from", 300),
+    weakness: nullableText("Weakness", 300),
+    resistance: nullableText("Resistance", 300),
+    retreatCost: z.number().int().nonnegative().max(100).nullable().optional(),
+    attacks: z.array(attackInputSchema).max(20).optional(),
+    quantity: z.number().int().positive().max(1_000_000),
+    condition: nullableText("Condition", 200),
+    finishVariant: nullableText("Finish / variant", 500),
+    sealed: z.boolean().optional(),
+    notes: nullableText("Notes"),
+    deckPool: nullableText("Deck pool", 500),
+    imageProvider: nullableText("Image provider", 200),
+    imageExternalId: nullableText("Image external ID", 500),
+    imageUrl: nullableUrl("Image URL"),
+    externalReferenceUrl: nullableUrl("External reference URL"),
+  })
+  .strict();
+
+function positiveId(id: number): number {
+  return z.number().int().positive().parse(id);
+}
+
+export class CollectionService {
+  constructor(private readonly repository: CollectionRepository) {}
+
+  listCollection(query: CollectionListQuery = {}): CollectionListItem[] {
+    const parsed = collectionListQuerySchema.parse(
+      query,
+    ) as CollectionListQuery;
+    return this.repository.list(parsed);
+  }
+
+  getCollectionEntry(ownedCardId: number): CollectionDetail | null {
+    return this.repository.getDetail(positiveId(ownedCardId));
+  }
+
+  getCollectionFacets(): CollectionFacets {
+    return this.repository.getFacets();
+  }
+
+  updateOwnedCard(
+    ownedCardId: number,
+    input: UpdateOwnedCardInput,
+  ): CollectionDetail | null {
+    const parsed = updateOwnedCardSchema.parse(input) as UpdateOwnedCardInput;
+    return this.repository.updateOwnedCard(positiveId(ownedCardId), parsed);
+  }
+
+  deleteCollectionEntry(ownedCardId: number): boolean {
+    return this.repository.deleteOwnedCard(positiveId(ownedCardId));
+  }
+
+  createCollectionEntry(input: CreateCollectionEntryInput): CollectionDetail {
+    const parsed = createCollectionEntrySchema.parse(
+      input,
+    ) as CreateCollectionEntryInput;
+    return this.repository.create(parsed);
+  }
+}
+
+export function createCollectionService(db: AppDatabase): CollectionService {
+  return new CollectionService(new CollectionRepository(db));
+}
+
+export function getCollectionService(): CollectionService {
+  return createCollectionService(getDatabase());
+}

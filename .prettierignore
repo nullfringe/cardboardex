@@ -1,0 +1,5 @@
+.next
+coverage
+data/*.sqlite*
+node_modules
+package-lock.json

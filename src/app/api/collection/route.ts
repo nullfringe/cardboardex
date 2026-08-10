@@ -1,0 +1,85 @@
+import { revalidatePath } from "next/cache";
+import { NextResponse } from "next/server";
+
+import { apiErrorResponse } from "@/lib/api/error-response";
+import { getCollectionService } from "@/lib/services/collection-service";
+import type {
+  CollectionListQuery,
+  CollectionSortField,
+  CreateCollectionEntryInput,
+} from "@/lib/types/collection";
+
+export const dynamic = "force-dynamic";
+export const runtime = "nodejs";
+
+const sortFields = new Set<CollectionSortField>([
+  "name",
+  "set",
+  "collectorNumber",
+  "pokemonType",
+  "hp",
+  "quantity",
+]);
+
+function optionalParameter(
+  searchParams: URLSearchParams,
+  key: string,
+): string | undefined {
+  const value = searchParams.get(key)?.trim();
+  return value || undefined;
+}
+
+function queryFromUrl(request: Request): CollectionListQuery {
+  const searchParams = new URL(request.url).searchParams;
+  const sortField = optionalParameter(searchParams, "sort");
+  const direction = optionalParameter(searchParams, "direction");
+  const sealed = optionalParameter(searchParams, "sealed");
+  const query: CollectionListQuery = {
+    search: optionalParameter(searchParams, "search"),
+    gameSlug: optionalParameter(searchParams, "game"),
+    cardKind: optionalParameter(searchParams, "kind"),
+    pokemonType: optionalParameter(searchParams, "type"),
+    setCode: optionalParameter(searchParams, "set"),
+    subtype: optionalParameter(searchParams, "subtype"),
+    rarity: optionalParameter(searchParams, "rarity"),
+    finishVariant: optionalParameter(searchParams, "variant"),
+  };
+
+  if (sealed === "true" || sealed === "false") {
+    query.sealed = sealed === "true";
+  }
+
+  if (sortField && sortFields.has(sortField as CollectionSortField)) {
+    query.sort = {
+      field: sortField as CollectionSortField,
+      direction: direction === "desc" ? "desc" : "asc",
+    };
+  }
+
+  return query;
+}
+
+export function GET(request: Request) {
+  try {
+    const service = getCollectionService();
+    return NextResponse.json({
+      items: service.listCollection(queryFromUrl(request)),
+      facets: service.getCollectionFacets(),
+    });
+  } catch (error) {
+    return apiErrorResponse(error);
+  }
+}
+
+export async function POST(request: Request) {
+  try {
+    const input: unknown = await request.json();
+    const detail = getCollectionService().createCollectionEntry(
+      input as CreateCollectionEntryInput,
+    );
+    revalidatePath("/");
+    return NextResponse.json(detail, { status: 201 });
+  } catch (error) {
+    return apiErrorResponse(error);
+  }
+}
