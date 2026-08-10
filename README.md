@@ -51,6 +51,8 @@ The default database is `data/cardboardex.sqlite` and is intentionally ignored b
 
 `db:seed` uses import provenance to update fixture-backed entries instead of duplicating them. It never resets the database. `db:reset` is the only destructive database command; it refuses to run without the explicit `--yes` confirmation and permanently removes local edits and manually added cards.
 
+Pushes and pull requests targeting `main` are validated by GitHub Actions using `npm run check` and the dependency audit. Run `npm run check` locally before sharing changes. Generated SQLite databases are local runtime data and must never be committed; `data/seed/collection.csv` is the intentionally version-controlled development fixture.
+
 ## Data model
 
 A **CardPrinting** is a published identity: game, set, collector number, printed rules, and optional game-specific details. An **OwnedCard** is one collection entry pointing to that printing: quantity, condition, finish or variant, sealed state, and personal notes. Multiple owned entries can refer to the same printing when copies differ.
