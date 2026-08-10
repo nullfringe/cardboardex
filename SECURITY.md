@@ -6,6 +6,6 @@ Do not expose Cardboardex directly to a LAN or the public internet. It has no ac
 
 The local SQLite database can contain private collection details and is ignored by Git. Do not commit database files, environment files, or private ownership metadata. The checked-in seed CSV is a public development fixture; avoid adding future purchase history, prices paid, storage locations, addresses, identifying information, or private notes to it.
 
-Remote artwork is disabled by default. Trusted public HTTPS image origins can be configured deliberately with `CARDBOARDEX_TRUSTED_IMAGE_ORIGINS`; Cardboardex never proxies those images through its server. The static CSP retains `unsafe-inline` because Next.js emits inline hydration scripts and image styles. `unsafe-eval` is added only in development for Next.js hot reloading and is absent from production.
+Official card artwork is resolved only by the explicit local sync command from exact `www.pokemon.com` card-database pages. Display URLs are restricted to the official `assets.pokemon.com` card-image path; additional public HTTPS image origins can be configured deliberately with `CARDBOARDEX_TRUSTED_IMAGE_ORIGINS`. Cardboardex never proxies those images through its server. The static CSP retains `unsafe-inline` because Next.js emits inline hydration scripts and image styles. `unsafe-eval` is added only in development for Next.js hot reloading and is absent from production.
 
 To report a security issue, open a private maintainer channel rather than publishing collection data or exploit details in a public issue.

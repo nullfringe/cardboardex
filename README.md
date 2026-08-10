@@ -39,6 +39,7 @@ The default database is `data/cardboardex.sqlite` and is intentionally ignored b
 | `npm run db:seed`           | Apply migrations and repeatably import the seed CSV                |
 | `npm run db:setup`          | Initialize and seed a fresh checkout                               |
 | `npm run db:reset -- --yes` | **Delete the local database and rebuild it from the seed fixture** |
+| `npm run artwork:sync`      | Resolve official Pokémon artwork into the local database           |
 | `npm run dev`               | Start the development server on `127.0.0.1`                        |
 | `npm run build`             | Create a production build                                          |
 | `npm start`                 | Run the production build on `127.0.0.1`                            |
@@ -72,9 +73,17 @@ The checked-in CSV is intentionally public development data. Do not add future p
 
 ## Artwork
 
-Copyrighted third-party card artwork is not stored in this repository. Card image metadata is isolated behind `src/lib/images/card-image-provider.ts`. Remote artwork is disabled by default, and missing or rejected images use a type-aware placeholder. `Collector Source` URLs from the CSV remain reference links and are not treated as image URLs or scraped.
+Copyrighted card images are not stored in this repository. After setting up the database, run:
 
-A future trusted provider can be enabled with a comma-separated list of exact public HTTPS origins in `CARDBOARDEX_TRUSTED_IMAGE_ORIGINS`. URLs outside that allowlist, non-HTTPS URLs, credentials, and local/private hosts are rejected. Images are loaded directly by the browser and are never fetched or proxied by the Cardboardex server. Production builds must be rebuilt after changing the trusted-origin configuration so the CSP stays aligned.
+```bash
+npm run artwork:sync
+```
+
+This explicit, repeatable command visits only the official `https://www.pokemon.com/us/pokemon-tcg/pokemon-cards/series/...` references already stored on Pokémon TCG printings. It reads the page's image metadata and stores the matching official card URL, provider key, and external ID in the local SQLite database. Resolved printings are skipped on later runs, while network failures or pages without matching metadata remain eligible for a later retry. Baseline setup, seeding, tests, builds, and CI never run the network enrichment step.
+
+Official card images are accepted only from `https://assets.pokemon.com/static-assets/content-assets/cms2/img/cards/web/...`. Images load directly in the browser and are never fetched or proxied by the Cardboardex web server. Missing, rejected, or failed images continue to use the type-aware placeholder. An owned stamped or sealed variant may therefore show the official underlying printing image while its ownership badges remain unchanged; printings without an official Pokémon source remain placeholders.
+
+Additional trusted providers can still be enabled deliberately with a comma-separated list of exact public HTTPS origins in `CARDBOARDEX_TRUSTED_IMAGE_ORIGINS`. URLs outside the allowlist, non-HTTPS URLs, credentials, and local/private hosts are rejected. Production builds must be rebuilt after changing this configuration so the CSP stays aligned.
 
 ## Project structure
 
@@ -93,7 +102,7 @@ data/seed/               Versioned CSV development fixture
 
 ## Current scope and limitations
 
-The MVP edits ownership facts without exposing published printing facts to accidental changes. Manual entry can create a printing and any number of structured attacks, but it is intentionally a compact first-pass workflow. There is no trusted third-party metadata integration or offline image cache yet. SQLite persistence assumes a local writable filesystem and is not suitable for ephemeral serverless deployment as configured.
+The MVP edits ownership facts without exposing published printing facts to accidental changes. Manual entry can create a printing and any number of structured attacks, but it is intentionally a compact first-pass workflow. Official artwork resolution is currently limited to stored Pokémon card-database references, and there is no offline image cache. SQLite persistence assumes a local writable filesystem and is not suitable for ephemeral serverless deployment as configured.
 
 ### Future work
 

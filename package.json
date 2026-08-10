@@ -12,6 +12,7 @@
     "db:seed": "node --import tsx src/scripts/db-seed.ts",
     "db:setup": "npm run db:init && npm run db:seed",
     "db:reset": "node --import tsx src/scripts/db-reset.ts",
+    "artwork:sync": "node --import tsx src/scripts/artwork-sync.ts",
     "test": "vitest run",
     "test:watch": "vitest",
     "lint": "eslint . --max-warnings=0",

@@ -12,6 +12,7 @@ import {
 } from "@/lib/images/card-image-provider";
 import {
   getTrustedCardImageOrigins,
+  isOfficialPokemonCardImageUrl,
   isTrustedCardImageUrl,
 } from "@/lib/security/card-image-policy";
 import { isLoopbackHostname } from "@/lib/security/host-policy";
@@ -211,19 +212,30 @@ describe("mutation validation and error handling", () => {
 });
 
 describe("remote card-image policy", () => {
-  it("disables every remote image origin by default", () => {
+  it("trusts only the official Pokémon card-image path by default", () => {
     vi.stubEnv("CARDBOARDEX_TRUSTED_IMAGE_ORIGINS", "");
 
-    expect(getTrustedCardImageOrigins()).toEqual([]);
+    expect(getTrustedCardImageOrigins()).toEqual([
+      "https://assets.pokemon.com",
+    ]);
     expect(isTrustedCardImageUrl("https://images.example.com/card.png")).toBe(
       false,
     );
+    const officialImage =
+      "https://assets.pokemon.com/static-assets/content-assets/cms2/img/cards/web/ME05/ME05_EN_57.png";
+    expect(isOfficialPokemonCardImageUrl(officialImage)).toBe(true);
+    expect(isTrustedCardImageUrl(officialImage)).toBe(true);
+    expect(
+      isTrustedCardImageUrl(
+        "https://assets.pokemon.com/static2/_ui/img/favicon.ico",
+      ),
+    ).toBe(false);
     expect(
       storedMetadataImageProvider.resolve({
         gameSlug: "pokemon-tcg",
         setCode: "BS",
         collectorNumber: "43/102",
-        imageUrl: "https://images.example.com/card.png",
+        imageUrl: "https://assets.pokemon.com/static2/_ui/img/favicon.ico",
       }),
     ).toBeNull();
   });

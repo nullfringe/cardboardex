@@ -1,5 +1,10 @@
 const TRUSTED_IMAGE_ORIGINS_ENV = "CARDBOARDEX_TRUSTED_IMAGE_ORIGINS";
 
+export const OFFICIAL_POKEMON_CARD_IMAGE_ORIGIN = "https://assets.pokemon.com";
+
+const OFFICIAL_POKEMON_CARD_IMAGE_PATH =
+  /^\/static-assets\/content-assets\/cms2\/img\/cards\/web\/[a-z0-9]+\/[a-z0-9_-]+\.(?:jpe?g|png|webp)$/iu;
+
 function normalizeHostname(hostname: string): string {
   return hostname
     .toLocaleLowerCase("en-US")
@@ -85,17 +90,33 @@ function parseTrustedOrigin(value: string): string {
 export function getTrustedCardImageOrigins(
   configuredOrigins = process.env.CARDBOARDEX_TRUSTED_IMAGE_ORIGINS,
 ): string[] {
-  if (!configuredOrigins?.trim()) return [];
-
   return [
     ...new Set(
-      configuredOrigins
-        .split(",")
+      [
+        OFFICIAL_POKEMON_CARD_IMAGE_ORIGIN,
+        ...(configuredOrigins?.split(",") ?? []),
+      ]
         .map((origin) => origin.trim())
         .filter(Boolean)
         .map(parseTrustedOrigin),
     ),
   ];
+}
+
+export function isOfficialPokemonCardImageUrl(value: string): boolean {
+  try {
+    const url = new URL(value);
+    return (
+      url.origin === OFFICIAL_POKEMON_CARD_IMAGE_ORIGIN &&
+      !url.username &&
+      !url.password &&
+      !url.search &&
+      !url.hash &&
+      OFFICIAL_POKEMON_CARD_IMAGE_PATH.test(url.pathname)
+    );
+  } catch {
+    return false;
+  }
 }
 
 export function isTrustedCardImageUrl(
@@ -104,6 +125,13 @@ export function isTrustedCardImageUrl(
 ): boolean {
   try {
     const url = new URL(value);
+    if (
+      url.origin === OFFICIAL_POKEMON_CARD_IMAGE_ORIGIN &&
+      !isOfficialPokemonCardImageUrl(value)
+    ) {
+      return false;
+    }
+
     return (
       url.protocol === "https:" &&
       !url.username &&
