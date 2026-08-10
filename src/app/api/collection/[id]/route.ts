@@ -2,6 +2,10 @@ import { revalidatePath } from "next/cache";
 import { NextResponse } from "next/server";
 
 import { apiErrorResponse } from "@/lib/api/error-response";
+import {
+  guardMutationOrigin,
+  parseJsonMutationRequest,
+} from "@/lib/security/mutation-request";
 import { getCollectionService } from "@/lib/services/collection-service";
 import type { UpdateOwnedCardInput } from "@/lib/types/collection";
 
@@ -47,6 +51,9 @@ export async function GET(_request: Request, context: RouteContext) {
 
 export async function PATCH(request: Request, context: RouteContext) {
   try {
+    const parsedRequest = await parseJsonMutationRequest(request);
+    if (!parsedRequest.ok) return parsedRequest.response;
+
     const id = await idFromContext(context);
     if (id === null) {
       return NextResponse.json(
@@ -55,10 +62,9 @@ export async function PATCH(request: Request, context: RouteContext) {
       );
     }
 
-    const input: unknown = await request.json();
     const detail = getCollectionService().updateOwnedCard(
       id,
-      input as UpdateOwnedCardInput,
+      parsedRequest.body as UpdateOwnedCardInput,
     );
     if (!detail) {
       return NextResponse.json(
@@ -77,6 +83,9 @@ export async function PATCH(request: Request, context: RouteContext) {
 
 export async function DELETE(_request: Request, context: RouteContext) {
   try {
+    const originRejection = guardMutationOrigin(_request);
+    if (originRejection) return originRejection;
+
     const id = await idFromContext(context);
     if (id === null) {
       return NextResponse.json(

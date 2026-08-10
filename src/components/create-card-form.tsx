@@ -54,7 +54,6 @@ export function CreateCardForm() {
   const [cardKind, setCardKind] = useState("Pokémon");
   const [collectorNumber, setCollectorNumber] = useState("");
   const [pokemonType, setPokemonType] = useState("");
-  const [imageUrl, setImageUrl] = useState("");
   const [attacks, setAttacks] = useState<DraftAttack[]>([]);
   const [nextAttackKey, setNextAttackKey] = useState(1);
   const [submitting, setSubmitting] = useState(false);
@@ -129,7 +128,6 @@ export function CreateCardForm() {
       finishVariant: blankToNull(formData.get("finishVariant")),
       sealed: formData.get("sealed") === "on",
       notes: blankToNull(formData.get("notes")),
-      imageUrl: blankToNull(formData.get("imageUrl")),
       externalReferenceUrl: blankToNull(formData.get("externalReferenceUrl")),
     };
 
@@ -177,7 +175,7 @@ export function CreateCardForm() {
           <CardArtwork
             cardKind={cardKind || "Card"}
             collectorNumber={collectorNumber || "—"}
-            imageUrl={imageUrl || null}
+            imageUrl={null}
             name={previewName}
             pokemonType={pokemonType || null}
             size="detail"
@@ -484,21 +482,8 @@ export function CreateCardForm() {
           </section>
 
           <details className="form-section form-section--details">
-            <summary>Artwork and external references</summary>
+            <summary>External reference</summary>
             <div className="form-grid form-grid--one form-grid--spaced">
-              <label className="field">
-                <span className="field__label">Direct image URL</span>
-                <input
-                  name="imageUrl"
-                  placeholder="https://…/card-image.jpg"
-                  type="url"
-                  value={imageUrl}
-                  onChange={(event) => setImageUrl(event.target.value)}
-                />
-                <small className="field__help">
-                  Link only to an image you are permitted to display.
-                </small>
-              </label>
               <label className="field">
                 <span className="field__label">External reference URL</span>
                 <input
@@ -507,6 +492,11 @@ export function CreateCardForm() {
                   type="url"
                 />
               </label>
+              <p className="field__help">
+                Remote artwork is disabled until a trusted image provider is
+                configured. Cardboardex will use its safe placeholder in the
+                meantime.
+              </p>
             </div>
           </details>
 

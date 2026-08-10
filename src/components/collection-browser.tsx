@@ -19,7 +19,6 @@ import type {
   CollectionSortField,
   SortDirection,
 } from "@/lib/types/collection";
-import { resolveCardImage } from "@/lib/images/card-image-provider";
 
 import { CardArtwork } from "./card-artwork";
 
@@ -158,8 +157,6 @@ function FilterSelect({
 }
 
 function CollectionCard({ item }: { item: CollectionListItem }) {
-  const image = resolveCardImage(item);
-
   return (
     <Link
       className="card-tile"
@@ -170,7 +167,7 @@ function CollectionCard({ item }: { item: CollectionListItem }) {
         <CardArtwork
           cardKind={item.cardKind}
           collectorNumber={item.collectorNumber}
-          imageUrl={image?.url}
+          imageUrl={item.imageUrl}
           name={item.name}
           pokemonType={item.pokemonType}
         />

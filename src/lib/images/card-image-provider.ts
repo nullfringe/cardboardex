@@ -1,3 +1,5 @@
+import { isTrustedCardImageUrl } from "@/lib/security/card-image-policy";
+
 export type CardImageIdentity = {
   gameSlug: string;
   setCode: string;
@@ -29,7 +31,7 @@ export const storedMetadataImageProvider: CardImageProvider = {
 
     try {
       const url = new URL(identity.imageUrl);
-      if (url.protocol !== "http:" && url.protocol !== "https:") return null;
+      if (!isTrustedCardImageUrl(url.toString())) return null;
 
       return {
         url: url.toString(),
@@ -53,4 +55,14 @@ export function resolveCardImage(
   }
 
   return null;
+}
+
+export function applyCardImagePolicy<T extends CardImageIdentity>(
+  identity: T,
+): T {
+  const image = resolveCardImage(identity);
+  return {
+    ...identity,
+    imageUrl: image?.url ?? null,
+  };
 }

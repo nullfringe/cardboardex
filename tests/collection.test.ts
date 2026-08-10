@@ -1,4 +1,4 @@
-import { afterEach, beforeEach, describe, expect, it } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 import { createDatabaseConnection, type DatabaseConnection } from "@/db/client";
 import { runMigrations } from "@/db/migrate";
@@ -33,6 +33,10 @@ describe("collection service", () => {
   let service: CollectionService;
 
   beforeEach(() => {
+    vi.stubEnv(
+      "CARDBOARDEX_TRUSTED_IMAGE_ORIGINS",
+      "https://images.example.com",
+    );
     connection = createDatabaseConnection(":memory:");
     runMigrations(connection.db);
     service = createCollectionService(connection.db);
@@ -40,6 +44,7 @@ describe("collection service", () => {
 
   afterEach(() => {
     connection.sqlite.close();
+    vi.unstubAllEnvs();
   });
 
   it("creates and reads a detailed collection entry with structured attacks", () => {
@@ -79,7 +84,7 @@ describe("collection service", () => {
         deckPool: "Grass deck",
         imageProvider: "fixture",
         imageExternalId: "me01-133",
-        imageUrl: "https://images.example.test/me01-133.png",
+        imageUrl: "https://images.example.com/me01-133.png",
         externalReferenceUrl: "https://cards.example.test/me01/133",
       }),
     );

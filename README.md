@@ -15,6 +15,8 @@ The included collection is Pokémon TCG data, but the core printing and ownershi
 
 This is deliberately a single-process, single-user local application. It does not need Docker, authentication, or a separate API service.
 
+> **Security boundary:** Cardboardex has no authentication and is currently intended for localhost-only use. The standard commands bind to `127.0.0.1`; do not expose the application directly to a LAN or the public internet. See [SECURITY.md](SECURITY.md).
+
 ## Local setup
 
 Requires Node.js 20.9 or newer.
@@ -25,28 +27,29 @@ npm run db:setup
 npm run dev
 ```
 
-Open [http://localhost:3000](http://localhost:3000). `db:setup` applies migrations and imports `data/seed/collection.csv`; no database file needs to be created manually.
+Open [http://127.0.0.1:3000](http://127.0.0.1:3000). `db:setup` applies migrations and imports `data/seed/collection.csv`; no database file needs to be created manually.
 
 The default database is `data/cardboardex.sqlite` and is intentionally ignored by Git. Set `CARDBOARDEX_DB_PATH` to use a different location.
 
 ### Common commands
 
-| Command                | Purpose                                                            |
-| ---------------------- | ------------------------------------------------------------------ |
-| `npm run db:init`      | Create/update the SQLite schema without importing cards            |
-| `npm run db:seed`      | Apply migrations and repeatably import the seed CSV                |
-| `npm run db:setup`     | Initialize and seed a fresh checkout                               |
-| `npm run db:reset`     | **Delete the local database and rebuild it from the seed fixture** |
-| `npm run dev`          | Start the development server                                       |
-| `npm run build`        | Create a production build                                          |
-| `npm start`            | Run the production build                                           |
-| `npm test`             | Run importer and collection behavior tests                         |
-| `npm run lint`         | Run ESLint with zero warnings allowed                              |
-| `npm run typecheck`    | Run strict TypeScript checking                                     |
-| `npm run format:check` | Check formatting                                                   |
-| `npm run check`        | Run tests, lint, typecheck, and build                              |
+| Command                     | Purpose                                                            |
+| --------------------------- | ------------------------------------------------------------------ |
+| `npm run db:init`           | Create/update the SQLite schema without importing cards            |
+| `npm run db:seed`           | Apply migrations and repeatably import the seed CSV                |
+| `npm run db:setup`          | Initialize and seed a fresh checkout                               |
+| `npm run db:reset -- --yes` | **Delete the local database and rebuild it from the seed fixture** |
+| `npm run dev`               | Start the development server on `127.0.0.1`                        |
+| `npm run build`             | Create a production build                                          |
+| `npm start`                 | Run the production build on `127.0.0.1`                            |
+| `npm test`                  | Run importer and collection behavior tests                         |
+| `npm run lint`              | Run ESLint with zero warnings allowed                              |
+| `npm run typecheck`         | Run strict TypeScript checking                                     |
+| `npm run format:check`      | Check formatting                                                   |
+| `npm run security:audit`    | Audit the complete npm dependency tree                             |
+| `npm run check`             | Run tests, lint, typecheck, and build                              |
 
-`db:seed` uses import provenance to update fixture-backed entries instead of duplicating them. `db:reset` is destructive to the selected local SQLite file, including manually added cards.
+`db:seed` uses import provenance to update fixture-backed entries instead of duplicating them. It never resets the database. `db:reset` is the only destructive database command; it refuses to run without the explicit `--yes` confirmation and permanently removes local edits and manually added cards.
 
 ## Data model
 
@@ -63,9 +66,13 @@ The normalized schema contains:
 
 The seed fixture lives at [`data/seed/collection.csv`](data/seed/collection.csv). Its importer handles the UTF-8 BOM, quoted fields, Unicode text, blanks, numeric validation, overloaded variant data, and transactional/idempotent writes. The fixture currently derives to 69 collection entries and 72 physical cards; tests assert those fixture acceptance totals rather than embedding them in application logic.
 
+The checked-in CSV is intentionally public development data. Do not add future private ownership information—such as purchase history, prices paid, storage locations, addresses, identifying information, or private notes—without first moving that data to local-only storage.
+
 ## Artwork
 
-Copyrighted third-party card artwork is not stored in this repository. Card image metadata is isolated behind `src/lib/images/card-image-provider.ts`. The MVP displays an optional stored remote image URL and falls back to a type-aware card-face placeholder on missing or failed images. `Collector Source` URLs from the CSV remain reference links and are not treated as image URLs or scraped.
+Copyrighted third-party card artwork is not stored in this repository. Card image metadata is isolated behind `src/lib/images/card-image-provider.ts`. Remote artwork is disabled by default, and missing or rejected images use a type-aware placeholder. `Collector Source` URLs from the CSV remain reference links and are not treated as image URLs or scraped.
+
+A future trusted provider can be enabled with a comma-separated list of exact public HTTPS origins in `CARDBOARDEX_TRUSTED_IMAGE_ORIGINS`. URLs outside that allowlist, non-HTTPS URLs, credentials, and local/private hosts are rejected. Images are loaded directly by the browser and are never fetched or proxied by the Cardboardex server. Production builds must be rebuilt after changing the trusted-origin configuration so the CSP stays aligned.
 
 ## Project structure
 
@@ -84,7 +91,7 @@ data/seed/               Versioned CSV development fixture
 
 ## Current scope and limitations
 
-The MVP edits ownership facts without exposing published printing facts to accidental changes. Manual entry can create a printing and any number of structured attacks, but it is intentionally a compact first-pass workflow. Images must currently be supplied as permitted direct URLs; there is no third-party metadata integration or offline image cache yet. SQLite persistence assumes a local writable filesystem and is not suitable for ephemeral serverless deployment as configured.
+The MVP edits ownership facts without exposing published printing facts to accidental changes. Manual entry can create a printing and any number of structured attacks, but it is intentionally a compact first-pass workflow. There is no trusted third-party metadata integration or offline image cache yet. SQLite persistence assumes a local writable filesystem and is not suitable for ephemeral serverless deployment as configured.
 
 ### Future work
 

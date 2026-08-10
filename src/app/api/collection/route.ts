@@ -2,6 +2,7 @@ import { revalidatePath } from "next/cache";
 import { NextResponse } from "next/server";
 
 import { apiErrorResponse } from "@/lib/api/error-response";
+import { parseJsonMutationRequest } from "@/lib/security/mutation-request";
 import { getCollectionService } from "@/lib/services/collection-service";
 import type {
   CollectionListQuery,
@@ -73,9 +74,11 @@ export function GET(request: Request) {
 
 export async function POST(request: Request) {
   try {
-    const input: unknown = await request.json();
+    const parsedRequest = await parseJsonMutationRequest(request);
+    if (!parsedRequest.ok) return parsedRequest.response;
+
     const detail = getCollectionService().createCollectionEntry(
-      input as CreateCollectionEntryInput,
+      parsedRequest.body as CreateCollectionEntryInput,
     );
     revalidatePath("/");
     return NextResponse.json(detail, { status: 201 });

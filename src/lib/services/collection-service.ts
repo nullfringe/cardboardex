@@ -1,7 +1,9 @@
 import { z } from "zod";
 
 import { getDatabase, type AppDatabase } from "@/db/client";
+import { applyCardImagePolicy } from "@/lib/images/card-image-provider";
 import { CollectionRepository } from "@/lib/repositories/collection-repository";
+import { isTrustedCardImageUrl } from "@/lib/security/card-image-policy";
 import type {
   CollectionDetail,
   CollectionFacets,
@@ -58,6 +60,15 @@ const nullableUrl = (label: string) =>
     },
     { message: `${label} must be an HTTP(S) URL.` },
   );
+
+const trustedImageUrl = nullableUrl("Image URL").refine(
+  (value) =>
+    value === undefined || value === null || isTrustedCardImageUrl(value),
+  {
+    message:
+      "Image URL must use HTTPS from a trusted card-image origin configured by the application owner.",
+  },
+);
 
 function slugify(value: string): string {
   return value
@@ -166,7 +177,7 @@ export const createCollectionEntrySchema = z
     deckPool: nullableText("Deck pool", 500),
     imageProvider: nullableText("Image provider", 200),
     imageExternalId: nullableText("Image external ID", 500),
-    imageUrl: nullableUrl("Image URL"),
+    imageUrl: trustedImageUrl,
     externalReferenceUrl: nullableUrl("External reference URL"),
   })
   .strict();
@@ -182,11 +193,12 @@ export class CollectionService {
     const parsed = collectionListQuerySchema.parse(
       query,
     ) as CollectionListQuery;
-    return this.repository.list(parsed);
+    return this.repository.list(parsed).map(applyCardImagePolicy);
   }
 
   getCollectionEntry(ownedCardId: number): CollectionDetail | null {
-    return this.repository.getDetail(positiveId(ownedCardId));
+    const detail = this.repository.getDetail(positiveId(ownedCardId));
+    return detail ? applyCardImagePolicy(detail) : null;
   }
 
   getCollectionFacets(): CollectionFacets {
@@ -198,7 +210,11 @@ export class CollectionService {
     input: UpdateOwnedCardInput,
   ): CollectionDetail | null {
     const parsed = updateOwnedCardSchema.parse(input) as UpdateOwnedCardInput;
-    return this.repository.updateOwnedCard(positiveId(ownedCardId), parsed);
+    const detail = this.repository.updateOwnedCard(
+      positiveId(ownedCardId),
+      parsed,
+    );
+    return detail ? applyCardImagePolicy(detail) : null;
   }
 
   deleteCollectionEntry(ownedCardId: number): boolean {
@@ -209,7 +225,7 @@ export class CollectionService {
     const parsed = createCollectionEntrySchema.parse(
       input,
     ) as CreateCollectionEntryInput;
-    return this.repository.create(parsed);
+    return applyCardImagePolicy(this.repository.create(parsed));
   }
 }
 

@@ -11,7 +11,6 @@ import {
 import Link from "next/link";
 
 import type { CollectionDetail } from "@/lib/types/collection";
-import { resolveCardImage } from "@/lib/images/card-image-provider";
 
 import { CardArtwork } from "./card-artwork";
 import { EnergyCost } from "./energy-cost";
@@ -36,7 +35,6 @@ function Fact({
 }
 
 export function CardDetailView({ card }: { card: CollectionDetail }) {
-  const image = resolveCardImage(card);
   const hasCombatFacts =
     card.weakness !== null ||
     card.resistance !== null ||
@@ -58,7 +56,7 @@ export function CardDetailView({ card }: { card: CollectionDetail }) {
             <CardArtwork
               cardKind={card.cardKind}
               collectorNumber={card.collectorNumber}
-              imageUrl={image?.url}
+              imageUrl={card.imageUrl}
               name={card.name}
               pokemonType={card.pokemonType}
               priority

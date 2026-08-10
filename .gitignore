@@ -9,8 +9,8 @@ data/*.sqlite-shm
 data/*.sqlite-wal
 data/*.sqlite-journal
 
-# Local configuration
-.env
-.env.local
+# Local configuration and secrets
+.env*
+!.env.example
 *.tsbuildinfo
 .DS_Store
