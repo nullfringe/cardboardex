@@ -24,7 +24,6 @@ export function ProfileSwitcher({
   const router = useRouter();
   const [profiles, setProfiles] = useState(initialProfiles);
   const [createName, setCreateName] = useState("");
-  const [renameName, setRenameName] = useState(activeProfile.name);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
@@ -83,6 +82,8 @@ export function ProfileSwitcher({
     event.preventDefault();
     setBusy(true);
     setError(null);
+    const name =
+      new FormData(event.currentTarget).get("name")?.toString() ?? "";
 
     try {
       const response = await fetch(
@@ -90,7 +91,7 @@ export function ProfileSwitcher({
         {
           method: "PATCH",
           headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ name: renameName }),
+          body: JSON.stringify({ name }),
         },
       );
       const result = (await response.json()) as ProfileResult;
@@ -140,10 +141,11 @@ export function ProfileSwitcher({
             <div>
               <input
                 id="rename-profile"
+                key={`${activeProfile.slug}:${activeProfile.name}`}
                 maxLength={100}
+                name="name"
                 required
-                value={renameName}
-                onChange={(event) => setRenameName(event.target.value)}
+                defaultValue={activeProfile.name}
               />
               <button className="button button--small" disabled={busy}>
                 Rename
