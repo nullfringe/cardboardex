@@ -34,6 +34,15 @@ export function ProfileSwitcher({
   const [error, setError] = useState<string | null>(null);
   const [deleteConfirmationProfileSlug, setDeleteConfirmationProfileSlug] =
     useState<string | null>(null);
+  const [previousProfileSlug, setPreviousProfileSlug] = useState(
+    activeProfile.slug,
+  );
+
+  if (activeProfile.slug !== previousProfileSlug) {
+    setPreviousProfileSlug(activeProfile.slug);
+    setDeleteConfirmationProfileSlug(null);
+  }
+
   const confirmingDelete = deleteConfirmationProfileSlug === activeProfile.slug;
 
   useEffect(() => {
