@@ -6,7 +6,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 import { createDatabaseConnection, type DatabaseConnection } from "@/db/client";
 import { runMigrations } from "@/db/migrate";
-import { cardPrintings } from "@/db/schema";
+import { cardPrintings, profiles } from "@/db/schema";
 import {
   type ArtworkFetch,
   OFFICIAL_POKEMON_ARTWORK_PROVIDER,
@@ -196,11 +196,20 @@ describe("official Pokémon artwork metadata", () => {
 
 describe("Pokémon artwork sync", () => {
   let connection: DatabaseConnection;
+  let profileId: number;
 
   beforeEach(() => {
     connection = createDatabaseConnection(":memory:");
     runMigrations(connection.db);
-    importCollectionCsv(connection.db, fs.readFileSync(seedPath));
+    const profile = connection.db
+      .select({ id: profiles.id })
+      .from(profiles)
+      .get();
+    if (!profile) throw new Error("Default profile was not migrated");
+    profileId = profile.id;
+    importCollectionCsv(connection.db, fs.readFileSync(seedPath), {
+      profileId,
+    });
   });
 
   afterEach(() => {
@@ -240,20 +249,22 @@ describe("Pokémon artwork sync", () => {
     });
 
     const service = createCollectionService(connection.db);
-    expect(service.getCollectionEntry(68)).toMatchObject({
+    expect(service.getCollectionEntry("my-collection", 68)).toMatchObject({
       name: "Bulbasaur",
       sealed: true,
       imageUrl:
         "https://assets.pokemon.com/static-assets/content-assets/cms2/img/cards/web/ME01/ME01_EN_133.png",
     });
-    expect(service.getCollectionEntry(69)).toMatchObject({
+    expect(service.getCollectionEntry("my-collection", 69)).toMatchObject({
       name: "Abra",
       imageProvider: VINTAGE_POKEMON_ARTWORK_PROVIDER,
       imageUrl:
         "https://tcgplayer-cdn.tcgplayer.com/product/42386_in_1000x1000.jpg",
     });
 
-    importCollectionCsv(connection.db, fs.readFileSync(seedPath));
+    importCollectionCsv(connection.db, fs.readFileSync(seedPath), {
+      profileId,
+    });
     fetchImpl.mockClear();
     const second = await syncPokemonArtwork(connection.db, {
       fetchImpl,

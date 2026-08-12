@@ -11,6 +11,7 @@ import {
   importRecords,
   ownedCards,
   pokemonDetails,
+  profiles,
   type OwnedCardMetadata,
   type PrintingMetadata,
 } from "@/db/schema";
@@ -26,12 +27,14 @@ const DEFAULT_GAME_SLUG = "pokemon-tcg";
 const DEFAULT_GAME_NAME = "Pokémon Trading Card Game";
 
 export type ImportCollectionOptions = {
+  profileId: number;
   sourceKey?: string;
   gameSlug?: string;
   gameName?: string;
 };
 
 export type ImportCollectionResult = {
+  profileId: number;
   sourceKey: string;
   importedEntries: number;
   importedQuantity: number;
@@ -120,8 +123,24 @@ function validatePrintingConsistency(rows: ParsedCollectionRow[]): void {
 export function importCollectionCsv(
   db: AppDatabase,
   input: string | Buffer,
-  options: ImportCollectionOptions = {},
+  options: ImportCollectionOptions,
 ): ImportCollectionResult {
+  const profileId = options.profileId;
+  if (!Number.isInteger(profileId) || profileId <= 0) {
+    throw new Error(
+      "A valid target profile ID is required for collection import.",
+    );
+  }
+
+  const targetProfile = db
+    .select({ id: profiles.id })
+    .from(profiles)
+    .where(eq(profiles.id, profileId))
+    .get();
+  if (!targetProfile) {
+    throw new Error(`Collection profile ${profileId} does not exist.`);
+  }
+
   const sourceKey = options.sourceKey?.trim() || DEFAULT_SOURCE_KEY;
   const gameSlug = options.gameSlug?.trim() || DEFAULT_GAME_SLUG;
   const gameName = options.gameName?.trim() || DEFAULT_GAME_NAME;
@@ -272,6 +291,7 @@ export function importCollectionCsv(
         .from(importRecords)
         .where(
           and(
+            eq(importRecords.profileId, profileId),
             eq(importRecords.sourceKey, sourceKey),
             eq(importRecords.externalInventoryId, row.inventoryId),
           ),
@@ -292,7 +312,12 @@ export function importCollectionCsv(
             metadata: ownedMetadataFor(row),
             updatedAt: sql`CURRENT_TIMESTAMP`,
           })
-          .where(eq(ownedCards.id, ownedCardId))
+          .where(
+            and(
+              eq(ownedCards.profileId, profileId),
+              eq(ownedCards.id, ownedCardId),
+            ),
+          )
           .run();
 
         tx.update(importRecords)
@@ -307,6 +332,7 @@ export function importCollectionCsv(
         const ownedCard = tx
           .insert(ownedCards)
           .values({
+            profileId,
             printingId: printing.id,
             quantity: row.quantity,
             finishVariant: row.finishVariant,
@@ -320,6 +346,7 @@ export function importCollectionCsv(
 
         tx.insert(importRecords)
           .values({
+            profileId,
             sourceKey,
             externalInventoryId: row.inventoryId,
             ownedCardId,
@@ -337,6 +364,7 @@ export function importCollectionCsv(
       physicalCards: sql<number>`coalesce(sum(${ownedCards.quantity}), 0)`,
     })
     .from(ownedCards)
+    .where(eq(ownedCards.profileId, profileId))
     .get();
 
   if (!totals) {
@@ -344,6 +372,7 @@ export function importCollectionCsv(
   }
 
   return {
+    profileId,
     sourceKey,
     importedEntries: rows.length,
     importedQuantity: rows.reduce((total, row) => total + row.quantity, 0),

@@ -1,7 +1,7 @@
 import fs from "node:fs";
 import path from "node:path";
 
-import { eq, sql } from "drizzle-orm";
+import { and, eq, sql } from "drizzle-orm";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 
 import { createDatabaseConnection, type DatabaseConnection } from "@/db/client";
@@ -14,12 +14,14 @@ import {
   importRecords,
   ownedCards,
   pokemonDetails,
+  profiles,
 } from "@/db/schema";
 import {
   CollectionCsvError,
   importCollectionCsv,
   parseCollectionCsv,
 } from "@/lib/import";
+import { createProfileService } from "@/lib/services/profile-service";
 
 const fixturePath = path.resolve(process.cwd(), "data/seed/collection.csv");
 const fixture = fs.readFileSync(fixturePath);
@@ -155,10 +157,15 @@ describe("collection CSV parsing", () => {
 
 describe("collection import", () => {
   let connection: DatabaseConnection;
+  let profileId: number;
 
   beforeEach(() => {
     connection = createDatabaseConnection(":memory:");
     runMigrations(connection.db);
+    profileId = requiredResult(
+      connection.db.select({ id: profiles.id }).from(profiles).get(),
+      "default profile",
+    ).id;
   });
 
   afterEach(() => {
@@ -166,9 +173,10 @@ describe("collection import", () => {
   });
 
   it("imports the normalized fixture and preserves raw provenance", () => {
-    const result = importCollectionCsv(connection.db, fixture);
+    const result = importCollectionCsv(connection.db, fixture, { profileId });
 
     expect(result).toEqual({
+      profileId,
       sourceKey: "data/seed/collection.csv",
       importedEntries: 69,
       importedQuantity: 72,
@@ -267,7 +275,7 @@ describe("collection import", () => {
   });
 
   it("keeps vintage blanks, zero retreat cost, and tentative condition as notes", () => {
-    importCollectionCsv(connection.db, fixture);
+    importCollectionCsv(connection.db, fixture, { profileId });
 
     const abra = requiredResult(
       connection.db
@@ -303,14 +311,16 @@ describe("collection import", () => {
   });
 
   it("is idempotent and updates rather than increments imported ownership", () => {
-    importCollectionCsv(connection.db, fixture);
+    importCollectionCsv(connection.db, fixture, { profileId });
     const ownedIdsBefore = connection.db
       .select({ id: ownedCards.id })
       .from(ownedCards)
       .orderBy(ownedCards.id)
       .all();
 
-    const secondResult = importCollectionCsv(connection.db, fixture);
+    const secondResult = importCollectionCsv(connection.db, fixture, {
+      profileId,
+    });
     const ownedIdsAfter = connection.db
       .select({ id: ownedCards.id })
       .from(ownedCards)
@@ -328,6 +338,8 @@ describe("collection import", () => {
     expect(secondResult.physicalCards).toBe(72);
     expect(ownedIdsAfter).toEqual(ownedIdsBefore);
     expect(physicalCards).toBe(72);
+    expect(connection.db.select().from(profiles).all()).toHaveLength(1);
+    expect(connection.db.select().from(importRecords).all()).toHaveLength(69);
   });
 
   it("does not mutate the database when file validation fails", () => {
@@ -337,7 +349,7 @@ describe("collection import", () => {
     );
 
     expect(() =>
-      importCollectionCsv(connection.db, invalidQuantity),
+      importCollectionCsv(connection.db, invalidQuantity, { profileId }),
     ).toThrowError(CollectionCsvError);
 
     const ownedCount = requiredResult(
@@ -348,5 +360,84 @@ describe("collection import", () => {
       "owned-card count",
     ).value;
     expect(ownedCount).toBe(0);
+  });
+
+  it("allows the same import provenance IDs in separate profiles", () => {
+    const secondProfile = createProfileService(connection.db).createProfile({
+      name: "Ekah",
+    });
+
+    const first = importCollectionCsv(connection.db, fixture, { profileId });
+    const secondFixture = fixtureText.replace(
+      "1,Pokémon,Maschiff,Darkness,Basic,70,1,",
+      "1,Pokémon,Maschiff,Darkness,Basic,70,3,",
+    );
+    const second = importCollectionCsv(connection.db, secondFixture, {
+      profileId: secondProfile.id,
+    });
+
+    expect(first).toMatchObject({
+      collectionEntries: 69,
+      physicalCards: 72,
+    });
+    expect(second).toMatchObject({
+      collectionEntries: 69,
+      physicalCards: 74,
+    });
+    expect(
+      requiredResult(
+        connection.db
+          .select({ value: sql<number>`count(*)` })
+          .from(cardPrintings)
+          .get(),
+        "printing count",
+      ).value,
+    ).toBe(69);
+    expect(
+      requiredResult(
+        connection.db
+          .select({ value: sql<number>`count(*)` })
+          .from(importRecords)
+          .get(),
+        "import record count",
+      ).value,
+    ).toBe(138);
+
+    const secondOwnedBefore = requiredResult(
+      connection.db
+        .select({
+          ownedCardId: ownedCards.id,
+          quantity: ownedCards.quantity,
+        })
+        .from(importRecords)
+        .innerJoin(ownedCards, eq(importRecords.ownedCardId, ownedCards.id))
+        .where(
+          and(
+            eq(importRecords.profileId, secondProfile.id),
+            eq(importRecords.externalInventoryId, "1"),
+          ),
+        )
+        .get(),
+      "second-profile inventory record",
+    );
+
+    importCollectionCsv(connection.db, fixture, { profileId });
+
+    expect(
+      connection.db
+        .select({
+          ownedCardId: ownedCards.id,
+          quantity: ownedCards.quantity,
+        })
+        .from(importRecords)
+        .innerJoin(ownedCards, eq(importRecords.ownedCardId, ownedCards.id))
+        .where(
+          and(
+            eq(importRecords.profileId, secondProfile.id),
+            eq(importRecords.externalInventoryId, "1"),
+          ),
+        )
+        .get(),
+    ).toEqual(secondOwnedBefore);
   });
 });

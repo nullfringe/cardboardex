@@ -11,6 +11,7 @@ import {
 import Link from "next/link";
 
 import type { CollectionDetail } from "@/lib/types/collection";
+import type { Profile } from "@/lib/types/profile";
 
 import { CardArtwork } from "./card-artwork";
 import { EnergyCost } from "./energy-cost";
@@ -34,7 +35,15 @@ function Fact({
   );
 }
 
-export function CardDetailView({ card }: { card: CollectionDetail }) {
+export function CardDetailView({
+  card,
+  profile,
+  profiles,
+}: {
+  card: CollectionDetail;
+  profile: Profile;
+  profiles: Profile[];
+}) {
   const hasCombatFacts =
     card.weakness !== null ||
     card.resistance !== null ||
@@ -42,9 +51,12 @@ export function CardDetailView({ card }: { card: CollectionDetail }) {
 
   return (
     <div className="app-shell">
-      <SiteHeader compact />
+      <SiteHeader activeProfile={profile} compact profiles={profiles} />
       <main className="detail-main">
-        <Link className="back-link" href="/">
+        <Link
+          className="back-link"
+          href={`/?profile=${encodeURIComponent(profile.slug)}`}
+        >
           <ArrowLeft size={17} aria-hidden="true" /> Collection
         </Link>
 

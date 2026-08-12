@@ -19,12 +19,14 @@ import type {
   CollectionSortField,
   SortDirection,
 } from "@/lib/types/collection";
+import type { Profile } from "@/lib/types/profile";
 
 import { CardArtwork } from "./card-artwork";
 
 type CollectionBrowserProps = {
   initialItems: CollectionListItem[];
   facets: CollectionFacets;
+  profile: Profile;
 };
 
 type BrowserFilters = {
@@ -160,7 +162,7 @@ function CollectionCard({ item }: { item: CollectionListItem }) {
   return (
     <Link
       className="card-tile"
-      href={`/cards/${item.ownedCardId}`}
+      href={`/cards/${item.ownedCardId}?profile=${encodeURIComponent(item.profileSlug)}`}
       aria-label={`View ${item.name}`}
     >
       <div className="card-tile__artwork-wrap">
@@ -219,6 +221,7 @@ function CollectionCard({ item }: { item: CollectionListItem }) {
 export function CollectionBrowser({
   initialItems,
   facets,
+  profile,
 }: CollectionBrowserProps) {
   const [search, setSearch] = useState("");
   const deferredSearch = useDeferredValue(search);
@@ -256,7 +259,7 @@ export function CollectionBrowser({
     <main className="collection-main">
       <section className="collection-intro" aria-labelledby="collection-title">
         <div>
-          <p className="eyebrow">Personal collection</p>
+          <p className="eyebrow">{profile.name}</p>
           <h1 id="collection-title">The cards you own.</h1>
         </div>
         <dl className="collection-counts" aria-label="Collection totals">

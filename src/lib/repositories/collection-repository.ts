@@ -18,6 +18,7 @@ import {
   games,
   ownedCards,
   pokemonDetails,
+  profiles,
 } from "@/db/schema";
 import type {
   CollectionDetail,
@@ -39,6 +40,8 @@ const defaultSort: CollectionSort = {
 const listSelection = {
   ownedCardId: ownedCards.id,
   printingId: cardPrintings.id,
+  profileSlug: profiles.slug,
+  profileName: profiles.name,
   gameSlug: games.slug,
   gameName: games.name,
   name: cardPrintings.name,
@@ -65,6 +68,7 @@ function collectionBaseQuery(db: AppDatabase) {
   return db
     .select(listSelection)
     .from(ownedCards)
+    .innerJoin(profiles, eq(ownedCards.profileId, profiles.id))
     .innerJoin(cardPrintings, eq(ownedCards.printingId, cardPrintings.id))
     .innerJoin(cardSets, eq(cardPrintings.setId, cardSets.id))
     .innerJoin(games, eq(cardSets.gameId, games.id))
@@ -219,8 +223,14 @@ function facetsFromRows(
 export class CollectionRepository {
   constructor(private readonly db: AppDatabase) {}
 
-  list(query: CollectionListQuery = {}): CollectionListItem[] {
-    const conditions = filterConditions(query);
+  list(
+    profileId: number,
+    query: CollectionListQuery = {},
+  ): CollectionListItem[] {
+    const conditions = [
+      eq(ownedCards.profileId, profileId),
+      ...filterConditions(query),
+    ];
     const sort = query.sort ?? defaultSort;
 
     return collectionBaseQuery(this.db)
@@ -229,7 +239,7 @@ export class CollectionRepository {
       .all();
   }
 
-  getDetail(ownedCardId: number): CollectionDetail | null {
+  getDetail(profileId: number, ownedCardId: number): CollectionDetail | null {
     const row = this.db
       .select({
         ...listSelection,
@@ -250,11 +260,17 @@ export class CollectionRepository {
         updatedAt: ownedCards.updatedAt,
       })
       .from(ownedCards)
+      .innerJoin(profiles, eq(ownedCards.profileId, profiles.id))
       .innerJoin(cardPrintings, eq(ownedCards.printingId, cardPrintings.id))
       .innerJoin(cardSets, eq(cardPrintings.setId, cardSets.id))
       .innerJoin(games, eq(cardSets.gameId, games.id))
       .leftJoin(pokemonDetails, eq(cardPrintings.id, pokemonDetails.printingId))
-      .where(eq(ownedCards.id, ownedCardId))
+      .where(
+        and(
+          eq(ownedCards.profileId, profileId),
+          eq(ownedCards.id, ownedCardId),
+        ),
+      )
       .get();
 
     if (!row) {
@@ -290,7 +306,7 @@ export class CollectionRepository {
     };
   }
 
-  getFacets(): CollectionFacets {
+  getFacets(profileId: number): CollectionFacets {
     const count = sql<number>`count(*)`;
     const gameRows = this.db
       .select({ value: games.slug, label: games.name, count })
@@ -298,6 +314,7 @@ export class CollectionRepository {
       .innerJoin(cardPrintings, eq(ownedCards.printingId, cardPrintings.id))
       .innerJoin(cardSets, eq(cardPrintings.setId, cardSets.id))
       .innerJoin(games, eq(cardSets.gameId, games.id))
+      .where(eq(ownedCards.profileId, profileId))
       .groupBy(games.slug, games.name)
       .orderBy(asc(games.name))
       .all();
@@ -309,6 +326,7 @@ export class CollectionRepository {
       })
       .from(ownedCards)
       .innerJoin(cardPrintings, eq(ownedCards.printingId, cardPrintings.id))
+      .where(eq(ownedCards.profileId, profileId))
       .groupBy(cardPrintings.cardKind)
       .orderBy(asc(cardPrintings.cardKind))
       .all();
@@ -324,7 +342,12 @@ export class CollectionRepository {
         pokemonDetails,
         eq(cardPrintings.id, pokemonDetails.printingId),
       )
-      .where(isNotNull(pokemonDetails.pokemonType))
+      .where(
+        and(
+          eq(ownedCards.profileId, profileId),
+          isNotNull(pokemonDetails.pokemonType),
+        ),
+      )
       .groupBy(pokemonDetails.pokemonType)
       .orderBy(asc(pokemonDetails.pokemonType))
       .all();
@@ -333,6 +356,7 @@ export class CollectionRepository {
       .from(ownedCards)
       .innerJoin(cardPrintings, eq(ownedCards.printingId, cardPrintings.id))
       .innerJoin(cardSets, eq(cardPrintings.setId, cardSets.id))
+      .where(eq(ownedCards.profileId, profileId))
       .groupBy(cardSets.code, cardSets.name)
       .orderBy(asc(cardSets.name))
       .all();
@@ -344,7 +368,12 @@ export class CollectionRepository {
       })
       .from(ownedCards)
       .innerJoin(cardPrintings, eq(ownedCards.printingId, cardPrintings.id))
-      .where(isNotNull(cardPrintings.subtype))
+      .where(
+        and(
+          eq(ownedCards.profileId, profileId),
+          isNotNull(cardPrintings.subtype),
+        ),
+      )
       .groupBy(cardPrintings.subtype)
       .orderBy(asc(cardPrintings.subtype))
       .all();
@@ -355,7 +384,12 @@ export class CollectionRepository {
         count,
       })
       .from(ownedCards)
-      .where(isNotNull(ownedCards.finishVariant))
+      .where(
+        and(
+          eq(ownedCards.profileId, profileId),
+          isNotNull(ownedCards.finishVariant),
+        ),
+      )
       .groupBy(ownedCards.finishVariant)
       .orderBy(asc(ownedCards.finishVariant))
       .all();
@@ -367,7 +401,12 @@ export class CollectionRepository {
       })
       .from(ownedCards)
       .innerJoin(cardPrintings, eq(ownedCards.printingId, cardPrintings.id))
-      .where(isNotNull(cardPrintings.rarity))
+      .where(
+        and(
+          eq(ownedCards.profileId, profileId),
+          isNotNull(cardPrintings.rarity),
+        ),
+      )
       .groupBy(cardPrintings.rarity)
       .orderBy(asc(cardPrintings.rarity))
       .all();
@@ -396,6 +435,7 @@ export class CollectionRepository {
   }
 
   updateOwnedCard(
+    profileId: number,
     ownedCardId: number,
     input: UpdateOwnedCardInput,
   ): CollectionDetail | null {
@@ -420,24 +460,37 @@ export class CollectionRepository {
     const updated = this.db
       .update(ownedCards)
       .set(patch)
-      .where(eq(ownedCards.id, ownedCardId))
+      .where(
+        and(
+          eq(ownedCards.profileId, profileId),
+          eq(ownedCards.id, ownedCardId),
+        ),
+      )
       .returning({ id: ownedCards.id })
       .get();
 
-    return updated ? this.getDetail(updated.id) : null;
+    return updated ? this.getDetail(profileId, updated.id) : null;
   }
 
-  deleteOwnedCard(ownedCardId: number): boolean {
+  deleteOwnedCard(profileId: number, ownedCardId: number): boolean {
     const deleted = this.db
       .delete(ownedCards)
-      .where(eq(ownedCards.id, ownedCardId))
+      .where(
+        and(
+          eq(ownedCards.profileId, profileId),
+          eq(ownedCards.id, ownedCardId),
+        ),
+      )
       .returning({ id: ownedCards.id })
       .get();
 
     return Boolean(deleted);
   }
 
-  create(input: CreateCollectionEntryInput): CollectionDetail {
+  create(
+    profileId: number,
+    input: CreateCollectionEntryInput,
+  ): CollectionDetail {
     const ownedCardId = this.db.transaction((tx) => {
       let game = tx
         .select({ id: games.id, name: games.name })
@@ -570,6 +623,7 @@ export class CollectionRepository {
       return tx
         .insert(ownedCards)
         .values({
+          profileId,
           printingId: printing.id,
           quantity: input.quantity,
           condition: input.condition,
@@ -582,7 +636,7 @@ export class CollectionRepository {
         .get().id;
     });
 
-    const detail = this.getDetail(ownedCardId);
+    const detail = this.getDetail(profileId, ownedCardId);
     if (!detail) {
       throw new Error(
         `Created collection entry ${ownedCardId} could not be read back.`,

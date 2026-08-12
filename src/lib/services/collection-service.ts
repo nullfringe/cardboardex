@@ -3,7 +3,12 @@ import { z } from "zod";
 import { getDatabase, type AppDatabase } from "@/db/client";
 import { applyCardImagePolicy } from "@/lib/images/card-image-provider";
 import { CollectionRepository } from "@/lib/repositories/collection-repository";
+import { ProfileRepository } from "@/lib/repositories/profile-repository";
 import { isTrustedCardImageUrl } from "@/lib/security/card-image-policy";
+import {
+  ProfileNotFoundError,
+  profileSlugSchema,
+} from "@/lib/services/profile-service";
 import type {
   CollectionDetail,
   CollectionFacets,
@@ -193,50 +198,85 @@ function positiveId(id: number): number {
 }
 
 export class CollectionService {
-  constructor(private readonly repository: CollectionRepository) {}
+  constructor(
+    private readonly repository: CollectionRepository,
+    private readonly profiles: ProfileRepository,
+  ) {}
 
-  listCollection(query: CollectionListQuery = {}): CollectionListItem[] {
+  private profileId(profileSlug: string): number {
+    const profile = this.profiles.getBySlug(
+      profileSlugSchema.parse(profileSlug),
+    );
+    if (!profile) throw new ProfileNotFoundError();
+    return profile.id;
+  }
+
+  listCollection(
+    profileSlug: string,
+    query: CollectionListQuery = {},
+  ): CollectionListItem[] {
     const parsed = collectionListQuerySchema.parse(
       query,
     ) as CollectionListQuery;
-    return this.repository.list(parsed).map(applyCardImagePolicy);
+    return this.repository
+      .list(this.profileId(profileSlug), parsed)
+      .map(applyCardImagePolicy);
   }
 
-  getCollectionEntry(ownedCardId: number): CollectionDetail | null {
-    const detail = this.repository.getDetail(positiveId(ownedCardId));
+  getCollectionEntry(
+    profileSlug: string,
+    ownedCardId: number,
+  ): CollectionDetail | null {
+    const detail = this.repository.getDetail(
+      this.profileId(profileSlug),
+      positiveId(ownedCardId),
+    );
     return detail ? applyCardImagePolicy(detail) : null;
   }
 
-  getCollectionFacets(): CollectionFacets {
-    return this.repository.getFacets();
+  getCollectionFacets(profileSlug: string): CollectionFacets {
+    return this.repository.getFacets(this.profileId(profileSlug));
   }
 
   updateOwnedCard(
+    profileSlug: string,
     ownedCardId: number,
     input: UpdateOwnedCardInput,
   ): CollectionDetail | null {
     const parsed = updateOwnedCardSchema.parse(input) as UpdateOwnedCardInput;
     const detail = this.repository.updateOwnedCard(
+      this.profileId(profileSlug),
       positiveId(ownedCardId),
       parsed,
     );
     return detail ? applyCardImagePolicy(detail) : null;
   }
 
-  deleteCollectionEntry(ownedCardId: number): boolean {
-    return this.repository.deleteOwnedCard(positiveId(ownedCardId));
+  deleteCollectionEntry(profileSlug: string, ownedCardId: number): boolean {
+    return this.repository.deleteOwnedCard(
+      this.profileId(profileSlug),
+      positiveId(ownedCardId),
+    );
   }
 
-  createCollectionEntry(input: CreateCollectionEntryInput): CollectionDetail {
+  createCollectionEntry(
+    profileSlug: string,
+    input: CreateCollectionEntryInput,
+  ): CollectionDetail {
     const parsed = createCollectionEntrySchema.parse(
       input,
     ) as CreateCollectionEntryInput;
-    return applyCardImagePolicy(this.repository.create(parsed));
+    return applyCardImagePolicy(
+      this.repository.create(this.profileId(profileSlug), parsed),
+    );
   }
 }
 
 export function createCollectionService(db: AppDatabase): CollectionService {
-  return new CollectionService(new CollectionRepository(db));
+  return new CollectionService(
+    new CollectionRepository(db),
+    new ProfileRepository(db),
+  );
 }
 
 export function getCollectionService(): CollectionService {

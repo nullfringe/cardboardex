@@ -9,6 +9,7 @@ import type {
   CreateAttackInput,
   CreateCollectionEntryInput,
 } from "@/lib/types/collection";
+import type { Profile } from "@/lib/types/profile";
 
 import { CardArtwork } from "./card-artwork";
 
@@ -48,7 +49,7 @@ function slugify(value: string): string {
     .replace(/^-+|-+$/gu, "");
 }
 
-export function CreateCardForm() {
+export function CreateCardForm({ profile }: { profile: Profile }) {
   const router = useRouter();
   const [name, setName] = useState("");
   const [cardKind, setCardKind] = useState("Pokémon");
@@ -109,6 +110,8 @@ export function CreateCardForm() {
       setCode: requiredString(formData, "setCode"),
       name: requiredString(formData, "name"),
       collectorNumber: requiredString(formData, "collectorNumber"),
+      languageCode: requiredString(formData, "languageCode"),
+      printingVariantKey: requiredString(formData, "printingVariantKey"),
       cardKind: requiredString(formData, "cardKind"),
       subtype: blankToNull(formData.get("subtype")),
       rarity: blankToNull(formData.get("rarity")),
@@ -132,18 +135,23 @@ export function CreateCardForm() {
     };
 
     try {
-      const response = await fetch("/api/collection", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify(payload),
-      });
+      const response = await fetch(
+        `/api/collection?profile=${encodeURIComponent(profile.slug)}`,
+        {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify(payload),
+        },
+      );
       const result = (await response.json()) as CreateResult;
 
       if (!response.ok || result.ownedCardId === undefined) {
         throw new Error(result.error ?? "The card could not be added.");
       }
 
-      router.push(`/cards/${result.ownedCardId}`);
+      router.push(
+        `/cards/${result.ownedCardId}?profile=${encodeURIComponent(profile.slug)}`,
+      );
       router.refresh();
     } catch (error) {
       setSubmitting(false);
@@ -155,7 +163,10 @@ export function CreateCardForm() {
 
   return (
     <main className="create-main">
-      <Link className="back-link" href="/">
+      <Link
+        className="back-link"
+        href={`/?profile=${encodeURIComponent(profile.slug)}`}
+      >
         <ArrowLeft size={17} aria-hidden="true" /> Collection
       </Link>
       <header className="create-heading">
@@ -242,6 +253,19 @@ export function CreateCardForm() {
                   placeholder="e.g. 043/102"
                   value={collectorNumber}
                   onChange={(event) => setCollectorNumber(event.target.value)}
+                />
+              </label>
+              <label className="field">
+                <span className="field__label">Language code *</span>
+                <input defaultValue="en" name="languageCode" required />
+              </label>
+              <label className="field">
+                <span className="field__label">Printing variant *</span>
+                <input
+                  defaultValue="standard"
+                  name="printingVariantKey"
+                  placeholder="standard, unlimited, first-edition…"
+                  required
                 />
               </label>
               <label className="field">
@@ -507,7 +531,10 @@ export function CreateCardForm() {
           ) : null}
 
           <div className="create-actions">
-            <Link className="button" href="/">
+            <Link
+              className="button"
+              href={`/?profile=${encodeURIComponent(profile.slug)}`}
+            >
               Cancel
             </Link>
             <button

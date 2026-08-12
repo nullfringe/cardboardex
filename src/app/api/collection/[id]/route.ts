@@ -27,7 +27,11 @@ async function idFromContext(context: RouteContext): Promise<number | null> {
   return parseId(id);
 }
 
-export async function GET(_request: Request, context: RouteContext) {
+function profileFromUrl(request: Request): string {
+  return new URL(request.url).searchParams.get("profile") ?? "";
+}
+
+export async function GET(request: Request, context: RouteContext) {
   try {
     const id = await idFromContext(context);
     if (id === null) {
@@ -37,7 +41,10 @@ export async function GET(_request: Request, context: RouteContext) {
       );
     }
 
-    const detail = getCollectionService().getCollectionEntry(id);
+    const detail = getCollectionService().getCollectionEntry(
+      profileFromUrl(request),
+      id,
+    );
     return detail
       ? NextResponse.json(detail)
       : NextResponse.json(
@@ -63,6 +70,7 @@ export async function PATCH(request: Request, context: RouteContext) {
     }
 
     const detail = getCollectionService().updateOwnedCard(
+      profileFromUrl(request),
       id,
       parsedRequest.body as UpdateOwnedCardInput,
     );
@@ -81,9 +89,9 @@ export async function PATCH(request: Request, context: RouteContext) {
   }
 }
 
-export async function DELETE(_request: Request, context: RouteContext) {
+export async function DELETE(request: Request, context: RouteContext) {
   try {
-    const originRejection = guardMutationOrigin(_request);
+    const originRejection = guardMutationOrigin(request);
     if (originRejection) return originRejection;
 
     const id = await idFromContext(context);
@@ -94,7 +102,10 @@ export async function DELETE(_request: Request, context: RouteContext) {
       );
     }
 
-    const deleted = getCollectionService().deleteCollectionEntry(id);
+    const deleted = getCollectionService().deleteCollectionEntry(
+      profileFromUrl(request),
+      id,
+    );
     if (!deleted) {
       return NextResponse.json(
         { error: "Collection entry not found." },

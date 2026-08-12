@@ -4,6 +4,7 @@ import path from "node:path";
 import { createDatabaseConnection, resolveDatabasePath } from "@/db/client";
 import { runMigrations } from "@/db/migrate";
 import { importCollectionCsv } from "@/lib/import";
+import { createProfileService } from "@/lib/services/profile-service";
 import {
   assertResetConfirmed,
   assertSafeResetTarget,
@@ -39,7 +40,11 @@ function main(): void {
 
   try {
     runMigrations(connection.db);
-    const result = importCollectionCsv(connection.db, csv, { sourceKey });
+    const profile = createProfileService(connection.db).ensureDefaultProfile();
+    const result = importCollectionCsv(connection.db, csv, {
+      profileId: profile.id,
+      sourceKey,
+    });
     console.log(
       `Reset ${databasePath} with ${result.collectionEntries} collection entries and ${result.physicalCards} physical cards.`,
     );

@@ -4,6 +4,7 @@ import path from "node:path";
 import { createDatabaseConnection, resolveDatabasePath } from "@/db/client";
 import { runMigrations } from "@/db/migrate";
 import { importCollectionCsv } from "@/lib/import";
+import { createProfileService } from "@/lib/services/profile-service";
 
 const seedPath = path.resolve(process.cwd(), "data/seed/collection.csv");
 const sourceKey = "data/seed/collection.csv";
@@ -15,10 +16,14 @@ function main(): void {
 
   try {
     runMigrations(connection.db);
-    const result = importCollectionCsv(connection.db, csv, { sourceKey });
+    const profile = createProfileService(connection.db).ensureDefaultProfile();
+    const result = importCollectionCsv(connection.db, csv, {
+      profileId: profile.id,
+      sourceKey,
+    });
 
     console.log(
-      `Seeded ${result.importedEntries} collection entries (${result.importedQuantity} physical cards) from ${result.sourceKey}.`,
+      `Seeded ${result.importedEntries} collection entries (${result.importedQuantity} physical cards) into ${profile.name} from ${result.sourceKey}.`,
     );
     console.log(
       `Database now contains ${result.collectionEntries} collection entries and ${result.physicalCards} physical cards.`,

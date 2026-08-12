@@ -27,6 +27,8 @@ export type CollectionListQuery = CollectionFilters & {
 export type CollectionListItem = {
   ownedCardId: number;
   printingId: number;
+  profileSlug: string;
+  profileName: string;
   gameSlug: string;
   gameName: string;
   name: string;

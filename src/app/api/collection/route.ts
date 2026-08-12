@@ -60,12 +60,17 @@ function queryFromUrl(request: Request): CollectionListQuery {
   return query;
 }
 
+function profileFromUrl(request: Request): string {
+  return new URL(request.url).searchParams.get("profile") ?? "";
+}
+
 export function GET(request: Request) {
   try {
     const service = getCollectionService();
+    const profileSlug = profileFromUrl(request);
     return NextResponse.json({
-      items: service.listCollection(queryFromUrl(request)),
-      facets: service.getCollectionFacets(),
+      items: service.listCollection(profileSlug, queryFromUrl(request)),
+      facets: service.getCollectionFacets(profileSlug),
     });
   } catch (error) {
     return apiErrorResponse(error);
@@ -78,6 +83,7 @@ export async function POST(request: Request) {
     if (!parsedRequest.ok) return parsedRequest.response;
 
     const detail = getCollectionService().createCollectionEntry(
+      profileFromUrl(request),
       parsedRequest.body as CreateCollectionEntryInput,
     );
     revalidatePath("/");

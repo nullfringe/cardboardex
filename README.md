@@ -1,6 +1,6 @@
 # Cardboardex
 
-Cardboardex is a visual, local-first trading card collection manager for organizing and browsing the cards you actually own. The current MVP opens directly into a responsive collection grid and supports card details, search, filters, sorting, ownership edits, removal, and simple manual entry.
+Cardboardex is a visual, local-first trading card collection manager for organizing and browsing the cards you actually own. Local collection profiles keep different owners' cards independent while sharing published card facts and artwork. The current MVP opens directly into a responsive collection grid and supports card details, search, filters, sorting, ownership edits, removal, and simple manual entry.
 
 The included collection is Pokémon TCG data, but the core printing and ownership model is game-agnostic. Pokémon-specific facts live in an extension table rather than defining every card game.
 
@@ -31,6 +31,12 @@ Open [http://127.0.0.1:3000](http://127.0.0.1:3000). `db:setup` applies migratio
 
 The default database is `data/cardboardex.sqlite` and is intentionally ignored by Git. Set `CARDBOARDEX_DB_PATH` to use a different location.
 
+### Collection profiles
+
+A profile answers “whose collection is this?” It is a local ownership container, not a login, account, permission boundary, language, game, or era. Use the collection selector in the header to switch profiles; its Manage panel creates and renames profiles. The browser remembers the last selected profile locally. Profile deletion is intentionally not exposed, avoiding an easy destructive path for local ownership data.
+
+Fresh setup creates **My Collection** and imports the seed into it. An existing single-collection database is migrated into that same default profile without resetting or re-importing its cards. Each profile can contain a mixture of games, eras, and printing languages; Japanese-card lookup is not implemented yet.
+
 ### Common commands
 
 | Command                     | Purpose                                                            |
@@ -50,13 +56,13 @@ The default database is `data/cardboardex.sqlite` and is intentionally ignored b
 | `npm run security:audit`    | Audit the complete npm dependency tree                             |
 | `npm run check`             | Run tests, lint, typecheck, and build                              |
 
-`db:seed` uses import provenance to update fixture-backed entries instead of duplicating them. It never resets the database. `db:reset` is the only destructive database command; it refuses to run without the explicit `--yes` confirmation and permanently removes local edits and manually added cards.
+`db:seed` targets the default profile and uses profile-aware import provenance to update fixture-backed entries instead of duplicating them. It never resets the database. The importer requires an explicit target profile ID, so separate profiles may safely reuse the same source and external inventory IDs. `db:reset` is the only destructive database command; it refuses to run without the explicit `--yes` confirmation and permanently removes local edits and manually added cards.
 
 Pushes and pull requests targeting `main` are validated by GitHub Actions using `npm run check` and the dependency audit. Run `npm run check` locally before sharing changes. Generated SQLite databases are local runtime data and must never be committed; `data/seed/collection.csv` is the intentionally version-controlled development fixture.
 
 ## Data model
 
-A **CardPrinting** is a published identity: game, set, collector number, language, printing variant, printed rules, and optional game-specific details. An **OwnedCard** is one collection entry pointing to that printing: quantity, condition, finish, sealed state, and personal notes. Multiple owned entries can refer to the same printing when copies differ. Publishing differences such as Base Set Unlimited, Shadowless, and 1st Edition belong to the printing identity rather than the ownership finish text.
+A **Profile** identifies the local owner of a collection. A **CardPrinting** is a global published identity: game, set, collector number, language, printing variant, printed rules, and optional game-specific details. An **OwnedCard** connects one profile to a printing and stores quantity, condition, finish, sealed state, and personal notes. Different profiles can own the same canonical printing with completely independent ownership facts. Publishing differences such as Base Set Unlimited, Shadowless, and 1st Edition belong to the printing identity rather than the ownership finish text.
 
 The normalized schema contains:
 
@@ -64,8 +70,9 @@ The normalized schema contains:
 - card printings, with a stable game/set/collector identity and variant discriminator;
 - optional Pokémon details;
 - ordered, structured attack rows with cost, damage, and effect;
-- owned cards containing only collection-specific facts; and
-- import provenance retaining every original CSV field and a source hash.
+- profiles containing only local owner identity;
+- profile-scoped owned cards containing only collection-specific facts; and
+- profile-scoped import provenance retaining every original CSV field and a source hash.
 
 The seed fixture lives at [`data/seed/collection.csv`](data/seed/collection.csv). Its importer handles the UTF-8 BOM, quoted fields, Unicode text, blanks, numeric validation, overloaded variant data, and transactional/idempotent writes. The fixture currently derives to 69 collection entries and 72 physical cards; tests assert those fixture acceptance totals rather than embedding them in application logic.
 
@@ -90,7 +97,7 @@ The vintage path currently recognizes Base Set, Jungle, Fossil, Base Set 2, and 
 
 TCGdex metadata is requested only from `https://api.tcgdex.net/v2/en/cards/...`. Vintage image URLs use the exact `https://tcgplayer-cdn.tcgplayer.com/product/..._in_1000x1000.jpg` path. Those fallback images are hosted by TCGplayer, not Pokémon; the stored provider key is `tcgdex-tcgplayer` so provenance remains explicit. TCGdex's [card endpoint](https://tcgdex.dev/rest/card) supplies structured card and variant data, while TCGplayer's product image convention is exposed by the [TCGCSV product documentation](https://tcgcsv.com/docs).
 
-Successful resolutions store only a URL, provider key, and external identity in local SQLite. Image binaries are never committed, downloaded into the repository, or proxied by Cardboardex. Resolved printings are skipped on later runs; unresolved cards and partial network failures remain eligible for retry. The CLI reports already resolved, newly resolved, unresolved, and failed counts. Baseline setup, seeding, tests, builds, and CI never run the network enrichment step.
+Successful resolutions store only a URL, provider key, and external identity on the shared CardPrinting in local SQLite. Two profiles that own the same printing therefore reuse one artwork resolution. Image binaries are never committed, downloaded into the repository, or proxied by Cardboardex. Resolved printings are skipped on later runs; unresolved cards and partial network failures remain eligible for retry. The CLI reports already resolved, newly resolved, unresolved, and failed counts. Baseline setup, seeding, tests, builds, and CI never run the network enrichment step.
 
 Official card images are accepted only from `https://assets.pokemon.com/static-assets/content-assets/cms2/img/cards/web/...`; vintage fallback images are accepted only from the TCGplayer path documented above. Images load directly in the browser and are never fetched or proxied by the Cardboardex web server. Missing, rejected, or failed images continue to use the type-aware placeholder. Ownership badges remain independent of reference artwork.
 

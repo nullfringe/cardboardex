@@ -1,12 +1,17 @@
 import { NextResponse } from "next/server";
 import { ZodError } from "zod";
 
+import { ProfileNotFoundError } from "@/lib/services/profile-service";
+
 type ApiErrorBody = {
   error: string;
   issues?: Array<{ path: string; message: string }>;
 };
 
 export function apiErrorResponse(error: unknown): NextResponse<ApiErrorBody> {
+  if (error instanceof ProfileNotFoundError) {
+    return NextResponse.json({ error: error.message }, { status: 404 });
+  }
   if (error instanceof ZodError) {
     return NextResponse.json(
       {

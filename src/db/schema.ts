@@ -1,6 +1,7 @@
 import { sql } from "drizzle-orm";
 import {
   check,
+  foreignKey,
   index,
   integer,
   sqliteTable,
@@ -19,6 +20,18 @@ export type OwnedCardMetadata = {
 };
 
 export type RawImportRow = Record<string, string>;
+
+export const profiles = sqliteTable("profiles", {
+  id: integer("id").primaryKey({ autoIncrement: true }),
+  slug: text("slug").notNull().unique(),
+  name: text("name").notNull(),
+  createdAt: text("created_at")
+    .notNull()
+    .default(sql`CURRENT_TIMESTAMP`),
+  updatedAt: text("updated_at")
+    .notNull()
+    .default(sql`CURRENT_TIMESTAMP`),
+});
 
 export const games = sqliteTable("games", {
   id: integer("id").primaryKey({ autoIncrement: true }),
@@ -151,6 +164,12 @@ export const ownedCards = sqliteTable(
   "owned_cards",
   {
     id: integer("id").primaryKey({ autoIncrement: true }),
+    profileId: integer("profile_id")
+      .notNull()
+      .references(() => profiles.id, {
+        onDelete: "restrict",
+        onUpdate: "cascade",
+      }),
     printingId: integer("printing_id")
       .notNull()
       .references(() => cardPrintings.id, {
@@ -175,6 +194,11 @@ export const ownedCards = sqliteTable(
   },
   (table) => [
     check("owned_cards_quantity_positive", sql`${table.quantity} > 0`),
+    uniqueIndex("owned_cards_id_profile_unique").on(table.id, table.profileId),
+    index("owned_cards_profile_printing_index").on(
+      table.profileId,
+      table.printingId,
+    ),
     index("owned_cards_printing_index").on(table.printingId),
   ],
 );
@@ -183,14 +207,10 @@ export const importRecords = sqliteTable(
   "import_records",
   {
     id: integer("id").primaryKey({ autoIncrement: true }),
+    profileId: integer("profile_id").notNull(),
     sourceKey: text("source_key").notNull(),
     externalInventoryId: text("external_inventory_id").notNull(),
-    ownedCardId: integer("owned_card_id")
-      .notNull()
-      .references(() => ownedCards.id, {
-        onDelete: "cascade",
-        onUpdate: "cascade",
-      }),
+    ownedCardId: integer("owned_card_id").notNull(),
     rawRow: text("raw_row", { mode: "json" }).$type<RawImportRow>().notNull(),
     sourceHash: text("source_hash").notNull(),
     importedAt: text("imported_at")
@@ -199,9 +219,17 @@ export const importRecords = sqliteTable(
   },
   (table) => [
     uniqueIndex("import_records_source_inventory_unique").on(
+      table.profileId,
       table.sourceKey,
       table.externalInventoryId,
     ),
     uniqueIndex("import_records_owned_card_unique").on(table.ownedCardId),
+    foreignKey({
+      columns: [table.ownedCardId, table.profileId],
+      foreignColumns: [ownedCards.id, ownedCards.profileId],
+      name: "import_records_owned_card_profile_fk",
+    })
+      .onUpdate("cascade")
+      .onDelete("cascade"),
   ],
 );

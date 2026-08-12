@@ -13,6 +13,7 @@ type OwnedCardEditorProps = {
   card: Pick<
     CollectionDetail,
     | "ownedCardId"
+    | "profileSlug"
     | "name"
     | "quantity"
     | "condition"
@@ -64,11 +65,14 @@ export function OwnedCardEditor({ card }: OwnedCardEditorProps) {
     };
 
     try {
-      const response = await fetch(`/api/collection/${card.ownedCardId}`, {
-        method: "PATCH",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify(payload),
-      });
+      const response = await fetch(
+        `/api/collection/${card.ownedCardId}?profile=${encodeURIComponent(card.profileSlug)}`,
+        {
+          method: "PATCH",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify(payload),
+        },
+      );
 
       const result = (await response.json()) as { error?: string };
       if (!response.ok) {
@@ -95,9 +99,10 @@ export function OwnedCardEditor({ card }: OwnedCardEditorProps) {
     setErrorMessage(null);
 
     try {
-      const response = await fetch(`/api/collection/${card.ownedCardId}`, {
-        method: "DELETE",
-      });
+      const response = await fetch(
+        `/api/collection/${card.ownedCardId}?profile=${encodeURIComponent(card.profileSlug)}`,
+        { method: "DELETE" },
+      );
       if (!response.ok) {
         const result = (await response.json()) as { error?: string };
         throw new Error(
@@ -105,7 +110,7 @@ export function OwnedCardEditor({ card }: OwnedCardEditorProps) {
         );
       }
 
-      router.push("/");
+      router.push(`/?profile=${encodeURIComponent(card.profileSlug)}`);
       router.refresh();
     } catch (error) {
       setDeleting(false);
