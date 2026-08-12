@@ -1,9 +1,12 @@
 const TRUSTED_IMAGE_ORIGINS_ENV = "CARDBOARDEX_TRUSTED_IMAGE_ORIGINS";
 
 export const OFFICIAL_POKEMON_CARD_IMAGE_ORIGIN = "https://assets.pokemon.com";
+export const TCGPLAYER_CARD_IMAGE_ORIGIN =
+  "https://tcgplayer-cdn.tcgplayer.com";
 
 const OFFICIAL_POKEMON_CARD_IMAGE_PATH =
   /^\/static-assets\/content-assets\/cms2\/img\/cards\/web\/[a-z0-9]+\/[a-z0-9_-]+\.(?:jpe?g|png|webp)$/iu;
+const TCGPLAYER_CARD_IMAGE_PATH = /^\/product\/[1-9]\d*_in_1000x1000\.jpg$/u;
 
 function normalizeHostname(hostname: string): string {
   return hostname
@@ -94,6 +97,7 @@ export function getTrustedCardImageOrigins(
     ...new Set(
       [
         OFFICIAL_POKEMON_CARD_IMAGE_ORIGIN,
+        TCGPLAYER_CARD_IMAGE_ORIGIN,
         ...(configuredOrigins?.split(",") ?? []),
       ]
         .map((origin) => origin.trim())
@@ -119,6 +123,22 @@ export function isOfficialPokemonCardImageUrl(value: string): boolean {
   }
 }
 
+export function isTcgplayerCardImageUrl(value: string): boolean {
+  try {
+    const url = new URL(value);
+    return (
+      url.origin === TCGPLAYER_CARD_IMAGE_ORIGIN &&
+      !url.username &&
+      !url.password &&
+      !url.search &&
+      !url.hash &&
+      TCGPLAYER_CARD_IMAGE_PATH.test(url.pathname)
+    );
+  } catch {
+    return false;
+  }
+}
+
 export function isTrustedCardImageUrl(
   value: string,
   trustedOrigins = getTrustedCardImageOrigins(),
@@ -128,6 +148,12 @@ export function isTrustedCardImageUrl(
     if (
       url.origin === OFFICIAL_POKEMON_CARD_IMAGE_ORIGIN &&
       !isOfficialPokemonCardImageUrl(value)
+    ) {
+      return false;
+    }
+    if (
+      url.origin === TCGPLAYER_CARD_IMAGE_ORIGIN &&
+      !isTcgplayerCardImageUrl(value)
     ) {
       return false;
     }

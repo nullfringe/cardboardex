@@ -45,6 +45,7 @@ const listSelection = {
   setName: cardSets.name,
   setCode: cardSets.code,
   collectorNumber: cardPrintings.collectorNumber,
+  languageCode: cardPrintings.languageCode,
   cardKind: cardPrintings.cardKind,
   subtype: cardPrintings.subtype,
   rarity: cardPrintings.rarity,
@@ -470,6 +471,7 @@ export class CollectionRepository {
 
       const printingKey = collectorNumberKey(input.collectorNumber);
       const variantKey = input.printingVariantKey ?? "standard";
+      const languageCode = input.languageCode ?? "en";
       let printing = tx
         .select({ id: cardPrintings.id })
         .from(cardPrintings)
@@ -478,6 +480,7 @@ export class CollectionRepository {
             eq(cardPrintings.setId, cardSet.id),
             eq(cardPrintings.collectorNumberKey, printingKey),
             eq(cardPrintings.printingVariantKey, variantKey),
+            eq(cardPrintings.languageCode, languageCode),
           ),
         )
         .get();
@@ -505,6 +508,7 @@ export class CollectionRepository {
             collectorNumberKey: printingKey,
             collectorNumberSort: collectorNumberSort(input.collectorNumber),
             printingVariantKey: variantKey,
+            languageCode,
             cardKind: input.cardKind,
             subtype: input.subtype,
             rarity: input.rarity,

@@ -13,6 +13,7 @@ import {
 import {
   getTrustedCardImageOrigins,
   isOfficialPokemonCardImageUrl,
+  isTcgplayerCardImageUrl,
   isTrustedCardImageUrl,
 } from "@/lib/security/card-image-policy";
 import { isLoopbackHostname } from "@/lib/security/host-policy";
@@ -217,6 +218,7 @@ describe("remote card-image policy", () => {
 
     expect(getTrustedCardImageOrigins()).toEqual([
       "https://assets.pokemon.com",
+      "https://tcgplayer-cdn.tcgplayer.com",
     ]);
     expect(isTrustedCardImageUrl("https://images.example.com/card.png")).toBe(
       false,
@@ -238,6 +240,16 @@ describe("remote card-image policy", () => {
         imageUrl: "https://assets.pokemon.com/static2/_ui/img/favicon.ico",
       }),
     ).toBeNull();
+
+    const vintageImage =
+      "https://tcgplayer-cdn.tcgplayer.com/product/42386_in_1000x1000.jpg";
+    expect(isTcgplayerCardImageUrl(vintageImage)).toBe(true);
+    expect(isTrustedCardImageUrl(vintageImage)).toBe(true);
+    expect(
+      isTrustedCardImageUrl(
+        "https://tcgplayer-cdn.tcgplayer.com/arbitrary/42386.jpg",
+      ),
+    ).toBe(false);
   });
 
   it("allows exact configured public HTTPS origins only", () => {

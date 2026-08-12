@@ -8,6 +8,11 @@ import {
   isOfficialPokemonCardSourceUrl,
   resolveOfficialPokemonArtwork,
 } from "./official-pokemon-artwork";
+import { storedMetadataImageProvider } from "./card-image-provider";
+import {
+  resolveVintagePokemonArtwork,
+  type VintagePokemonArtwork,
+} from "./vintage-pokemon-artwork";
 
 const DEFAULT_REQUEST_DELAY_MS = 150;
 
@@ -15,7 +20,7 @@ export type ArtworkSyncIssue = {
   printingId: number;
   name: string;
   sourceUrl: string | null;
-  outcome: "unresolved" | "failed" | "unsupported-source";
+  outcome: "unresolved" | "failed";
   message: string;
 };
 
@@ -25,7 +30,6 @@ export type ArtworkSyncResult = {
   attempted: number;
   resolved: number;
   unresolved: number;
-  unsupportedSources: number;
   failed: number;
   issues: ArtworkSyncIssue[];
 };
@@ -45,10 +49,10 @@ function wait(milliseconds: number): Promise<void> {
 function errorMessage(error: unknown): string {
   return error instanceof Error
     ? error.message
-    : "Official Pokémon artwork resolution failed.";
+    : "Pokémon artwork resolution failed.";
 }
 
-export async function syncOfficialPokemonArtwork(
+export async function syncPokemonArtwork(
   db: AppDatabase,
   options: ArtworkSyncOptions = {},
 ): Promise<ArtworkSyncResult> {
@@ -56,6 +60,14 @@ export async function syncOfficialPokemonArtwork(
     .select({
       printingId: cardPrintings.id,
       name: cardPrintings.name,
+      gameSlug: games.slug,
+      setCode: cardSets.code,
+      setName: cardSets.name,
+      collectorNumber: cardPrintings.collectorNumber,
+      printingVariantKey: cardPrintings.printingVariantKey,
+      languageCode: cardPrintings.languageCode,
+      imageProvider: cardPrintings.imageProvider,
+      imageExternalId: cardPrintings.imageExternalId,
       imageUrl: cardPrintings.imageUrl,
       sourceUrl: cardPrintings.externalReferenceUrl,
     })
@@ -72,30 +84,23 @@ export async function syncOfficialPokemonArtwork(
     attempted: 0,
     resolved: 0,
     unresolved: 0,
-    unsupportedSources: 0,
     failed: 0,
     issues: [],
   };
   let hasAttemptedRequest = false;
 
   for (const printing of printings) {
-    if (printing.imageUrl) {
-      result.alreadyResolved += 1;
-      continue;
-    }
-
     if (
-      !printing.sourceUrl ||
-      !isOfficialPokemonCardSourceUrl(printing.sourceUrl)
+      storedMetadataImageProvider.resolve({
+        gameSlug: printing.gameSlug,
+        setCode: printing.setCode,
+        collectorNumber: printing.collectorNumber,
+        imageProvider: printing.imageProvider,
+        imageExternalId: printing.imageExternalId,
+        imageUrl: printing.imageUrl,
+      })
     ) {
-      result.unsupportedSources += 1;
-      result.issues.push({
-        printingId: printing.printingId,
-        name: printing.name,
-        sourceUrl: printing.sourceUrl,
-        outcome: "unsupported-source",
-        message: "No trusted official Pokémon card-database source is stored.",
-      });
+      result.alreadyResolved += 1;
       continue;
     }
 
@@ -105,19 +110,60 @@ export async function syncOfficialPokemonArtwork(
     hasAttemptedRequest = true;
     result.attempted += 1;
 
+    let artwork:
+      | VintagePokemonArtwork
+      | Awaited<ReturnType<typeof resolveOfficialPokemonArtwork>> = null;
+    const providerErrors: unknown[] = [];
+
     try {
-      const artwork = await resolveOfficialPokemonArtwork(printing.sourceUrl, {
-        fetchImpl: options.fetchImpl,
-        timeoutMs: options.timeoutMs,
-      });
+      if (
+        printing.sourceUrl &&
+        isOfficialPokemonCardSourceUrl(printing.sourceUrl)
+      ) {
+        try {
+          artwork = await resolveOfficialPokemonArtwork(printing.sourceUrl, {
+            fetchImpl: options.fetchImpl,
+            timeoutMs: options.timeoutMs,
+          });
+        } catch (error) {
+          providerErrors.push(error);
+        }
+      }
+
       if (!artwork) {
+        try {
+          artwork = await resolveVintagePokemonArtwork(
+            {
+              gameSlug: printing.gameSlug,
+              setCode: printing.setCode,
+              setName: printing.setName,
+              collectorNumber: printing.collectorNumber,
+              printingVariantKey: printing.printingVariantKey,
+              languageCode: printing.languageCode,
+            },
+            {
+              fetchImpl: options.fetchImpl,
+              timeoutMs: options.timeoutMs,
+            },
+          );
+        } catch (error) {
+          providerErrors.push(error);
+        }
+      }
+
+      if (!artwork) {
+        if (providerErrors.length > 0) {
+          throw providerErrors[0];
+        }
+
         result.unresolved += 1;
         result.issues.push({
           printingId: printing.printingId,
           name: printing.name,
           sourceUrl: printing.sourceUrl,
           outcome: "unresolved",
-          message: "The official page did not expose matching card artwork.",
+          message:
+            "No provider exposed artwork for the exact set, number, language, and printing variant.",
         });
         continue;
       }
@@ -146,3 +192,6 @@ export async function syncOfficialPokemonArtwork(
 
   return result;
 }
+
+/** @deprecated Prefer syncPokemonArtwork; retained for callers of the original API. */
+export const syncOfficialPokemonArtwork = syncPokemonArtwork;

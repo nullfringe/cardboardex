@@ -1,6 +1,6 @@
 import { createDatabaseConnection, resolveDatabasePath } from "@/db/client";
 import { runMigrations } from "@/db/migrate";
-import { syncOfficialPokemonArtwork } from "@/lib/images/sync-official-pokemon-artwork";
+import { syncPokemonArtwork } from "@/lib/images/sync-official-pokemon-artwork";
 
 async function main(): Promise<void> {
   const databasePath = resolveDatabasePath();
@@ -8,12 +8,12 @@ async function main(): Promise<void> {
 
   try {
     runMigrations(connection.db);
-    const result = await syncOfficialPokemonArtwork(connection.db);
+    const result = await syncPokemonArtwork(connection.db);
 
     console.log(
       [
-        `Official artwork sync checked ${result.totalPrintings} Pokémon TCG printings.`,
-        `${result.resolved} resolved, ${result.alreadyResolved} already resolved, ${result.unresolved} unresolved, ${result.unsupportedSources} without an official source, ${result.failed} failed.`,
+        `Artwork sync checked ${result.totalPrintings} Pokémon TCG printings.`,
+        `${result.resolved} newly resolved, ${result.alreadyResolved} already resolved, ${result.unresolved} unresolved, ${result.failed} failed.`,
       ].join("\n"),
     );
 

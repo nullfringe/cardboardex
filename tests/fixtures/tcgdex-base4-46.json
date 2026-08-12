@@ -1,0 +1,23 @@
+{
+  "category": "Pokemon",
+  "id": "base4-46",
+  "localId": "46",
+  "name": "Kadabra",
+  "set": {
+    "cardCount": { "official": 130, "total": 130 },
+    "id": "base4",
+    "name": "Base Set 2"
+  },
+  "variants_detailed": [
+    {
+      "type": "normal",
+      "size": "standard",
+      "variantId": "base-set-2-normal"
+    }
+  ],
+  "pricing": {
+    "tcgplayer": {
+      "normal": { "productId": 42509 }
+    }
+  }
+}

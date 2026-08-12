@@ -68,6 +68,7 @@ export const cardPrintings = sqliteTable(
     printingVariantKey: text("printing_variant_key")
       .notNull()
       .default("standard"),
+    languageCode: text("language_code").notNull().default("en"),
     cardKind: text("card_kind").notNull(),
     subtype: text("subtype"),
     rarity: text("rarity"),
@@ -96,6 +97,7 @@ export const cardPrintings = sqliteTable(
       table.setId,
       table.collectorNumberKey,
       table.printingVariantKey,
+      table.languageCode,
     ),
     index("card_printings_name_index").on(table.name),
     index("card_printings_kind_index").on(table.cardKind),

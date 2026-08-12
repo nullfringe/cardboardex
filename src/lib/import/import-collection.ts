@@ -97,6 +97,7 @@ function validatePrintingConsistency(rows: ParsedCollectionRow[]): void {
       row.setCode.toLocaleLowerCase("en-US"),
       row.collectorNumberKey,
       row.printingVariantKey,
+      row.languageCode,
     ].join("\u001f");
     const signature = publishedFactsSignature(row);
     const existing = identities.get(identity);
@@ -160,6 +161,7 @@ export function importCollectionCsv(
           collectorNumberKey: row.collectorNumberKey,
           collectorNumberSort: row.collectorNumberSort,
           printingVariantKey: row.printingVariantKey,
+          languageCode: row.languageCode,
           cardKind: row.cardKind,
           subtype: row.subtype,
           rarity: row.rarity,
@@ -176,6 +178,7 @@ export function importCollectionCsv(
             cardPrintings.setId,
             cardPrintings.collectorNumberKey,
             cardPrintings.printingVariantKey,
+            cardPrintings.languageCode,
           ],
           set: {
             name: row.name,

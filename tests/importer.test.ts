@@ -63,6 +63,7 @@ describe("collection CSV parsing", () => {
     expect(abra).toMatchObject({
       collectorNumber: "43/102",
       collectorNumberKey: "43/102",
+      languageCode: "en",
       regulationMark: null,
       retreatCost: 0,
     });
@@ -81,11 +82,38 @@ describe("collection CSV parsing", () => {
     });
     expect(abra).toMatchObject({
       rarity: "Common",
-      finishVariant: "Base Set Unlimited; regular non-holo",
+      finishVariant: "regular non-holo",
       sealed: false,
-      printingVariantKey: "standard",
+      printingVariantKey: "unlimited",
     });
     expect(abra?.notes).toContain("condition tentatively Moderately Played");
+  });
+
+  it("keeps vintage publishing variants as distinct printing identities", () => {
+    const firstEdition = parseCollectionCsv(
+      fixtureText.replace(
+        "Base Set Unlimited; regular non-holo",
+        "Base Set 1st Edition; regular non-holo",
+      ),
+    ).find((row) => row.name === "Abra");
+    const shadowless = parseCollectionCsv(
+      fixtureText.replace(
+        "Base Set Unlimited; regular non-holo",
+        "Base Set Shadowless; regular non-holo",
+      ),
+    ).find((row) => row.name === "Abra");
+
+    expect(firstEdition).toMatchObject({
+      printingVariantKey: "first-edition",
+      finishVariant: "regular non-holo",
+    });
+    expect(shadowless).toMatchObject({
+      printingVariantKey: "shadowless",
+      finishVariant: "regular non-holo",
+    });
+    expect(firstEdition?.printingVariantKey).not.toBe(
+      shadowless?.printingVariantKey,
+    );
   });
 
   it("requires the exact ordered header schema", () => {
@@ -246,6 +274,8 @@ describe("collection import", () => {
         .select({
           regulationMark: cardPrintings.regulationMark,
           collectorNumber: cardPrintings.collectorNumber,
+          printingVariantKey: cardPrintings.printingVariantKey,
+          languageCode: cardPrintings.languageCode,
           retreatCost: pokemonDetails.retreatCost,
           condition: ownedCards.condition,
           notes: ownedCards.notes,
@@ -264,6 +294,8 @@ describe("collection import", () => {
     expect(abra).toMatchObject({
       regulationMark: null,
       collectorNumber: "43/102",
+      printingVariantKey: "unlimited",
+      languageCode: "en",
       retreatCost: 0,
       condition: null,
     });

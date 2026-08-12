@@ -33,6 +33,7 @@ export type CollectionListItem = {
   setName: string;
   setCode: string;
   collectorNumber: string;
+  languageCode: string;
   cardKind: string;
   subtype: string | null;
   rarity: string | null;
@@ -116,6 +117,7 @@ export type CreateCollectionEntryInput = {
   name: string;
   collectorNumber: string;
   printingVariantKey?: string;
+  languageCode?: string;
   cardKind: string;
   subtype?: string | null;
   rarity?: string | null;

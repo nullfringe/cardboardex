@@ -8,6 +8,13 @@
       "when": 1786342296768,
       "tag": "0000_initial_schema",
       "breakpoints": true
+    },
+    {
+      "idx": 1,
+      "version": "6",
+      "when": 1786582800000,
+      "tag": "0001_vintage_printing_identity",
+      "breakpoints": true
     }
   ]
 }

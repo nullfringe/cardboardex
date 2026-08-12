@@ -39,7 +39,7 @@ The default database is `data/cardboardex.sqlite` and is intentionally ignored b
 | `npm run db:seed`           | Apply migrations and repeatably import the seed CSV                |
 | `npm run db:setup`          | Initialize and seed a fresh checkout                               |
 | `npm run db:reset -- --yes` | **Delete the local database and rebuild it from the seed fixture** |
-| `npm run artwork:sync`      | Resolve official Pokémon artwork into the local database           |
+| `npm run artwork:sync`      | Resolve trusted Pokémon artwork into the local database            |
 | `npm run dev`               | Start the development server on `127.0.0.1`                        |
 | `npm run build`             | Create a production build                                          |
 | `npm start`                 | Run the production build on `127.0.0.1`                            |
@@ -56,7 +56,7 @@ Pushes and pull requests targeting `main` are validated by GitHub Actions using 
 
 ## Data model
 
-A **CardPrinting** is a published identity: game, set, collector number, printed rules, and optional game-specific details. An **OwnedCard** is one collection entry pointing to that printing: quantity, condition, finish or variant, sealed state, and personal notes. Multiple owned entries can refer to the same printing when copies differ.
+A **CardPrinting** is a published identity: game, set, collector number, language, printing variant, printed rules, and optional game-specific details. An **OwnedCard** is one collection entry pointing to that printing: quantity, condition, finish, sealed state, and personal notes. Multiple owned entries can refer to the same printing when copies differ. Publishing differences such as Base Set Unlimited, Shadowless, and 1st Edition belong to the printing identity rather than the ownership finish text.
 
 The normalized schema contains:
 
@@ -79,9 +79,20 @@ Copyrighted card images are not stored in this repository. After setting up the 
 npm run artwork:sync
 ```
 
-This explicit, repeatable command visits only the official `https://www.pokemon.com/us/pokemon-tcg/pokemon-cards/series/...` references already stored on Pokémon TCG printings. It reads the page's image metadata and stores the matching official card URL, provider key, and external ID in the local SQLite database. Resolved printings are skipped on later runs, while network failures or pages without matching metadata remain eligible for a later retry. Baseline setup, seeding, tests, builds, and CI never run the network enrichment step.
+The explicit, repeatable sync uses this provider order:
 
-Official card images are accepted only from `https://assets.pokemon.com/static-assets/content-assets/cms2/img/cards/web/...`. Images load directly in the browser and are never fetched or proxied by the Cardboardex web server. Missing, rejected, or failed images continue to use the type-aware placeholder. An owned stamped or sealed variant may therefore show the official underlying printing image while its ownership badges remain unchanged; printings without an official Pokémon source remain placeholders.
+1. keep already stored artwork that still passes the image policy;
+2. resolve stored modern card-page references through Pokémon's official card database and `assets.pokemon.com`;
+3. for supported English vintage sets, query the structured TCGdex card API and accept a TCGplayer image only when the requested printing variant has its own product linkage (or the source reports only one visual printing); and
+4. leave the type-aware placeholder when no provider can identify the exact printing.
+
+The vintage path currently recognizes Base Set, Jungle, Fossil, Base Set 2, and Team Rocket identities using set code/name, collector number, English language, and printing variant. It deliberately declines ambiguous shared products, including 1st Edition or Shadowless images when only an Unlimited printing is owned. Base Set 1st Edition, Shadowless, 1999–2000 copyright, and similar variants remain placeholders unless TCGdex exposes a distinct variant-to-product image linkage. This limitation is preferable to silently displaying the wrong physical printing.
+
+TCGdex metadata is requested only from `https://api.tcgdex.net/v2/en/cards/...`. Vintage image URLs use the exact `https://tcgplayer-cdn.tcgplayer.com/product/..._in_1000x1000.jpg` path. Those fallback images are hosted by TCGplayer, not Pokémon; the stored provider key is `tcgdex-tcgplayer` so provenance remains explicit. TCGdex's [card endpoint](https://tcgdex.dev/rest/card) supplies structured card and variant data, while TCGplayer's product image convention is exposed by the [TCGCSV product documentation](https://tcgcsv.com/docs).
+
+Successful resolutions store only a URL, provider key, and external identity in local SQLite. Image binaries are never committed, downloaded into the repository, or proxied by Cardboardex. Resolved printings are skipped on later runs; unresolved cards and partial network failures remain eligible for retry. The CLI reports already resolved, newly resolved, unresolved, and failed counts. Baseline setup, seeding, tests, builds, and CI never run the network enrichment step.
+
+Official card images are accepted only from `https://assets.pokemon.com/static-assets/content-assets/cms2/img/cards/web/...`; vintage fallback images are accepted only from the TCGplayer path documented above. Images load directly in the browser and are never fetched or proxied by the Cardboardex web server. Missing, rejected, or failed images continue to use the type-aware placeholder. Ownership badges remain independent of reference artwork.
 
 Additional trusted providers can still be enabled deliberately with a comma-separated list of exact public HTTPS origins in `CARDBOARDEX_TRUSTED_IMAGE_ORIGINS`. URLs outside the allowlist, non-HTTPS URLs, credentials, and local/private hosts are rejected. Production builds must be rebuilt after changing this configuration so the CSP stays aligned.
 
@@ -102,7 +113,7 @@ data/seed/               Versioned CSV development fixture
 
 ## Current scope and limitations
 
-The MVP edits ownership facts without exposing published printing facts to accidental changes. Manual entry can create a printing and any number of structured attacks, but it is intentionally a compact first-pass workflow. Official artwork resolution is currently limited to stored Pokémon card-database references, and there is no offline image cache. SQLite persistence assumes a local writable filesystem and is not suitable for ephemeral serverless deployment as configured.
+The MVP edits ownership facts without exposing published printing facts to accidental changes. Manual entry can create a printing and any number of structured attacks, but it is intentionally a compact first-pass workflow. Vintage artwork coverage depends on exact variant metadata and is intentionally incomplete where a source has only an ambiguous scan. There is no offline image cache. SQLite persistence assumes a local writable filesystem and is not suitable for ephemeral serverless deployment as configured.
 
 ### Future work
 

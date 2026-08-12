@@ -15,7 +15,8 @@ import {
   parseOfficialPokemonArtwork,
   resolveOfficialPokemonArtwork,
 } from "@/lib/images/official-pokemon-artwork";
-import { syncOfficialPokemonArtwork } from "@/lib/images/sync-official-pokemon-artwork";
+import { syncPokemonArtwork } from "@/lib/images/sync-official-pokemon-artwork";
+import { VINTAGE_POKEMON_ARTWORK_PROVIDER } from "@/lib/images/vintage-pokemon-artwork";
 import { importCollectionCsv } from "@/lib/import";
 import { createCollectionService } from "@/lib/services/collection-service";
 
@@ -23,6 +24,10 @@ const seedPath = path.resolve(process.cwd(), "data/seed/collection.csv");
 const fixturePath = path.resolve(
   process.cwd(),
   "tests/fixtures/pokemon-card-page.html",
+);
+const vintageAbraFixture = fs.readFileSync(
+  path.resolve(process.cwd(), "tests/fixtures/tcgdex-base1-43.json"),
+  "utf8",
 );
 const maschiffSource =
   "https://www.pokemon.com/us/pokemon-tcg/pokemon-cards/series/me05/57/";
@@ -36,6 +41,36 @@ function officialImageForSource(sourceUrl: string): string {
   if (!setCode || !cardNumber) throw new Error("Unexpected test source URL");
 
   return `https://assets.pokemon.com/static-assets/content-assets/cms2/img/cards/web/${setCode}/${setCode}_EN_${cardNumber}.png`;
+}
+
+function fetchWithVintageFallback(failSource?: string) {
+  return vi.fn<ArtworkFetch>(async (input, init) => {
+    if (input === failSource) {
+      throw new TypeError("Simulated network failure");
+    }
+    if (input === "https://api.tcgdex.net/v2/en/cards/base1-43") {
+      return new Response(vintageAbraFixture, {
+        status: 200,
+        headers: { "content-type": "application/json" },
+      });
+    }
+    if (
+      input ===
+        "https://tcgplayer-cdn.tcgplayer.com/product/42386_in_1000x1000.jpg" &&
+      init.method === "HEAD"
+    ) {
+      return new Response(null, {
+        status: 200,
+        headers: { "content-type": "image/jpeg" },
+      });
+    }
+
+    const imageUrl = officialImageForSource(input);
+    return new Response(`<meta content="${imageUrl}" property="og:image">`, {
+      status: 200,
+      headers: { "content-type": "text/html" },
+    });
+  });
 }
 
 describe("official Pokémon artwork metadata", () => {
@@ -159,7 +194,7 @@ describe("official Pokémon artwork metadata", () => {
   });
 });
 
-describe("official Pokémon artwork sync", () => {
+describe("Pokémon artwork sync", () => {
   let connection: DatabaseConnection;
 
   beforeEach(() => {
@@ -172,29 +207,22 @@ describe("official Pokémon artwork sync", () => {
     connection.sqlite.close();
   });
 
-  it("enriches seeded official sources once and preserves unresolved fallback", async () => {
-    const fetchImpl = vi.fn<ArtworkFetch>(async (sourceUrl) => {
-      const imageUrl = officialImageForSource(sourceUrl);
-      return new Response(`<meta content="${imageUrl}" property="og:image">`, {
-        status: 200,
-        headers: { "content-type": "text/html" },
-      });
-    });
+  it("enriches official and exact vintage sources once", async () => {
+    const fetchImpl = fetchWithVintageFallback();
 
-    const first = await syncOfficialPokemonArtwork(connection.db, {
+    const first = await syncPokemonArtwork(connection.db, {
       fetchImpl,
       requestDelayMs: 0,
     });
     expect(first).toMatchObject({
       totalPrintings: 69,
       alreadyResolved: 0,
-      attempted: 68,
-      resolved: 68,
+      attempted: 69,
+      resolved: 69,
       unresolved: 0,
-      unsupportedSources: 1,
       failed: 0,
     });
-    expect(fetchImpl).toHaveBeenCalledTimes(68);
+    expect(fetchImpl).toHaveBeenCalledTimes(70);
 
     const maschiff = connection.db
       .select({
@@ -220,47 +248,38 @@ describe("official Pokémon artwork sync", () => {
     });
     expect(service.getCollectionEntry(69)).toMatchObject({
       name: "Abra",
-      imageUrl: null,
+      imageProvider: VINTAGE_POKEMON_ARTWORK_PROVIDER,
+      imageUrl:
+        "https://tcgplayer-cdn.tcgplayer.com/product/42386_in_1000x1000.jpg",
     });
 
     importCollectionCsv(connection.db, fs.readFileSync(seedPath));
     fetchImpl.mockClear();
-    const second = await syncOfficialPokemonArtwork(connection.db, {
+    const second = await syncPokemonArtwork(connection.db, {
       fetchImpl,
       requestDelayMs: 0,
     });
     expect(second).toMatchObject({
       totalPrintings: 69,
-      alreadyResolved: 68,
+      alreadyResolved: 69,
       attempted: 0,
       resolved: 0,
-      unsupportedSources: 1,
+      unresolved: 0,
       failed: 0,
     });
     expect(fetchImpl).not.toHaveBeenCalled();
   });
 
   it("persists successful cards when one official resolution fails", async () => {
-    const fetchImpl = vi.fn<ArtworkFetch>(async (sourceUrl) => {
-      if (sourceUrl === maschiffSource || sourceUrl === maschiffImage) {
-        throw new TypeError("Simulated network failure");
-      }
+    const fetchImpl = fetchWithVintageFallback(maschiffSource);
 
-      const imageUrl = officialImageForSource(sourceUrl);
-      return new Response(`<meta property="og:image" content="${imageUrl}">`, {
-        status: 200,
-        headers: { "content-type": "text/html" },
-      });
-    });
-
-    const result = await syncOfficialPokemonArtwork(connection.db, {
+    const result = await syncPokemonArtwork(connection.db, {
       fetchImpl,
       requestDelayMs: 0,
     });
     expect(result).toMatchObject({
-      attempted: 68,
-      resolved: 67,
-      unsupportedSources: 1,
+      attempted: 69,
+      resolved: 68,
       failed: 1,
     });
     expect(

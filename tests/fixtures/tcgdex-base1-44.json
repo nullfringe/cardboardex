@@ -1,0 +1,37 @@
+{
+  "category": "Pokemon",
+  "id": "base1-44",
+  "localId": "44",
+  "name": "Bulbasaur",
+  "set": {
+    "cardCount": { "official": 102, "total": 102 },
+    "id": "base1",
+    "name": "Base Set"
+  },
+  "variants_detailed": [
+    {
+      "type": "normal",
+      "subtype": "unlimited",
+      "size": "standard",
+      "variantId": "base1-normal-unlimited",
+      "pricing": {
+        "tcgplayer": {
+          "normal": { "productId": 42387 }
+        }
+      }
+    },
+    {
+      "type": "normal",
+      "subtype": "shadowless",
+      "size": "standard",
+      "stamp": ["1st-edition"],
+      "variantId": "base1-normal-first-edition"
+    },
+    {
+      "type": "normal",
+      "subtype": "shadowless",
+      "size": "standard",
+      "variantId": "base1-normal-shadowless"
+    }
+  ]
+}

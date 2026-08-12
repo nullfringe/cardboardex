@@ -1,0 +1,30 @@
+{
+  "category": "Pokemon",
+  "id": "base2-60",
+  "localId": "60",
+  "name": "Pikachu",
+  "set": {
+    "cardCount": { "official": 64, "total": 64 },
+    "id": "base2",
+    "name": "Jungle"
+  },
+  "variants_detailed": [
+    {
+      "type": "normal",
+      "size": "standard",
+      "variantId": "jungle-normal"
+    },
+    {
+      "type": "normal",
+      "size": "standard",
+      "stamp": ["1st-edition"],
+      "variantId": "jungle-first-edition"
+    }
+  ],
+  "pricing": {
+    "tcgplayer": {
+      "unlimited": { "productId": 45163 },
+      "1st-edition": { "productId": 45163 }
+    }
+  }
+}

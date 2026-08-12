@@ -144,6 +144,12 @@ export const createCollectionEntrySchema = z
     setName: requiredText("Set name", 300),
     name: requiredText("Card name", 300),
     collectorNumber: requiredText("Collector number", 100),
+    languageCode: z
+      .string()
+      .trim()
+      .toLowerCase()
+      .regex(/^[a-z]{2}(?:-[a-z]{2})?$/u, "Language code is invalid.")
+      .optional(),
     printingVariantKey: requiredText("Printing variant key", 200)
       .transform(slugify)
       .pipe(

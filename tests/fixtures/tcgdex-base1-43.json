@@ -1,0 +1,43 @@
+{
+  "category": "Pokemon",
+  "id": "base1-43",
+  "localId": "43",
+  "name": "Abra",
+  "set": {
+    "cardCount": { "official": 102, "total": 102 },
+    "id": "base1",
+    "name": "Base Set"
+  },
+  "variants_detailed": [
+    {
+      "type": "normal",
+      "subtype": "unlimited",
+      "size": "standard",
+      "variantId": "base1-normal-unlimited",
+      "pricing": {
+        "tcgplayer": {
+          "normal": { "productId": 42386 }
+        }
+      }
+    },
+    {
+      "type": "normal",
+      "subtype": "shadowless",
+      "size": "standard",
+      "stamp": ["1st-edition"],
+      "variantId": "base1-normal-first-edition"
+    },
+    {
+      "type": "normal",
+      "subtype": "shadowless",
+      "size": "standard",
+      "variantId": "base1-normal-shadowless"
+    },
+    {
+      "type": "normal",
+      "subtype": "1999-2000-copyright",
+      "size": "standard",
+      "variantId": "base1-normal-1999-2000"
+    }
+  ]
+}

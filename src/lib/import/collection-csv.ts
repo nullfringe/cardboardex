@@ -81,6 +81,7 @@ export type ParsedCollectionRow = {
   finishVariant: string | null;
   sealed: boolean;
   printingVariantKey: string;
+  languageCode: string;
   rawRow: RawImportRow;
 };
 
@@ -279,14 +280,21 @@ function parseFinishVariant(value: string | null): {
   rarity: string | null;
   finishVariant: string | null;
   sealed: boolean;
+  printingVariantKey: string;
 } {
   if (value === null) {
-    return { rarity: null, finishVariant: null, sealed: false };
+    return {
+      rarity: null,
+      finishVariant: null,
+      sealed: false,
+      printingVariantKey: "standard",
+    };
   }
 
   const remaining: string[] = [];
   let rarity: string | null = null;
   let sealed = false;
+  let printingVariantKey = "standard";
 
   for (const token of value
     .split(";")
@@ -295,10 +303,23 @@ function parseFinishVariant(value: string | null): {
     const tokenKey = token.toLocaleLowerCase("en-US");
     const recognizedRarity = knownRarities.get(tokenKey);
 
+    const publishingVariant =
+      /\b1st[ -]edition(?:\s+shadowless)?(?:\s+printing)?$/iu.test(tokenKey)
+        ? "first-edition"
+        : /\bshadowless(?:\s+printing)?$/iu.test(tokenKey)
+          ? "shadowless"
+          : /\b1999[ -]2000(?:\s+copyright)?(?:\s+printing)?$/iu.test(tokenKey)
+            ? "1999-2000-copyright"
+            : /\bunlimited(?:\s+printing)?$/iu.test(tokenKey)
+              ? "unlimited"
+              : null;
+
     if (recognizedRarity && rarity === null) {
       rarity = recognizedRarity;
     } else if (tokenKey === "factory sealed" || tokenKey === "sealed") {
       sealed = true;
+    } else if (publishingVariant && printingVariantKey === "standard") {
+      printingVariantKey = publishingVariant;
     } else {
       remaining.push(token);
     }
@@ -308,6 +329,7 @@ function parseFinishVariant(value: string | null): {
     rarity,
     finishVariant: remaining.length > 0 ? remaining.join("; ") : null,
     sealed,
+    printingVariantKey,
   };
 }
 
@@ -489,7 +511,8 @@ function parseRecord(
     rarity: finish.rarity,
     finishVariant: finish.finishVariant,
     sealed: finish.sealed,
-    printingVariantKey: "standard",
+    printingVariantKey: finish.printingVariantKey,
+    languageCode: "en",
     rawRow,
   };
 }
