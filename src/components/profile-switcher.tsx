@@ -32,7 +32,9 @@ export function ProfileSwitcher({
   const [createName, setCreateName] = useState("");
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
-  const [confirmingDelete, setConfirmingDelete] = useState(false);
+  const [deleteConfirmationProfileSlug, setDeleteConfirmationProfileSlug] =
+    useState<string | null>(null);
+  const confirmingDelete = deleteConfirmationProfileSlug === activeProfile.slug;
 
   useEffect(() => {
     const storedSlug = window.localStorage.getItem(STORAGE_KEY);
@@ -169,13 +171,13 @@ export function ProfileSwitcher({
         throw new Error(result.error ?? "Collection deletion failed.");
 
       setProfiles(result.remainingProfiles);
-      setConfirmingDelete(false);
+      setDeleteConfirmationProfileSlug(null);
       window.localStorage.setItem(STORAGE_KEY, result.fallbackProfile.slug);
       router.push(
         `/?profile=${encodeURIComponent(result.fallbackProfile.slug)}`,
       );
     } catch (caught) {
-      setConfirmingDelete(false);
+      setDeleteConfirmationProfileSlug(null);
       setError(
         caught instanceof Error
           ? caught.message
@@ -269,7 +271,7 @@ export function ProfileSwitcher({
                   className="button button--small"
                   disabled={busy}
                   type="button"
-                  onClick={() => setConfirmingDelete(false)}
+                  onClick={() => setDeleteConfirmationProfileSlug(null)}
                 >
                   Keep collection
                 </button>
@@ -287,7 +289,9 @@ export function ProfileSwitcher({
                 className="button button--danger button--small"
                 disabled={busy || profiles.length <= 1}
                 type="button"
-                onClick={() => setConfirmingDelete(true)}
+                onClick={() =>
+                  setDeleteConfirmationProfileSlug(activeProfile.slug)
+                }
               >
                 Delete collection
               </button>
