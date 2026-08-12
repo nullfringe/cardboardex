@@ -16,6 +16,12 @@ type ProfileSwitcherProps = {
 
 type ProfileResult = Profile & { error?: string };
 
+type DeleteProfileResult = {
+  fallbackProfile: Profile;
+  remainingProfiles: Profile[];
+  error?: string;
+};
+
 export function ProfileSwitcher({
   activeProfile,
   initialProfiles,
@@ -26,6 +32,7 @@ export function ProfileSwitcher({
   const [createName, setCreateName] = useState("");
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [confirmingDelete, setConfirmingDelete] = useState(false);
 
   useEffect(() => {
     const storedSlug = window.localStorage.getItem(STORAGE_KEY);
@@ -43,7 +50,9 @@ export function ProfileSwitcher({
       return;
     }
 
-    window.localStorage.setItem(STORAGE_KEY, activeProfile.slug);
+    if (profiles.some((profile) => profile.slug === activeProfile.slug)) {
+      window.localStorage.setItem(STORAGE_KEY, activeProfile.slug);
+    }
   }, [activeProfile.slug, honorStoredSelection, profiles, router]);
 
   function switchProfile(slug: string): void {
@@ -113,6 +122,70 @@ export function ProfileSwitcher({
     }
   }
 
+  async function duplicateProfile(event: FormEvent<HTMLFormElement>) {
+    event.preventDefault();
+    setBusy(true);
+    setError(null);
+    const name =
+      new FormData(event.currentTarget).get("name")?.toString() ?? "";
+
+    try {
+      const response = await fetch(
+        `/api/profiles/${encodeURIComponent(activeProfile.slug)}/duplicate`,
+        {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ name }),
+        },
+      );
+      const result = (await response.json()) as ProfileResult;
+      if (!response.ok)
+        throw new Error(result.error ?? "Collection duplication failed.");
+
+      setProfiles((current) => [...current, result]);
+      switchProfile(result.slug);
+    } catch (caught) {
+      setError(
+        caught instanceof Error
+          ? caught.message
+          : "Collection duplication failed.",
+      );
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  async function deleteProfile(): Promise<void> {
+    setBusy(true);
+    setError(null);
+
+    try {
+      const response = await fetch(
+        `/api/profiles/${encodeURIComponent(activeProfile.slug)}`,
+        { method: "DELETE" },
+      );
+      const result = (await response.json()) as DeleteProfileResult;
+      if (!response.ok)
+        throw new Error(result.error ?? "Collection deletion failed.");
+
+      setProfiles(result.remainingProfiles);
+      setConfirmingDelete(false);
+      window.localStorage.setItem(STORAGE_KEY, result.fallbackProfile.slug);
+      router.push(
+        `/?profile=${encodeURIComponent(result.fallbackProfile.slug)}`,
+      );
+    } catch (caught) {
+      setConfirmingDelete(false);
+      setError(
+        caught instanceof Error
+          ? caught.message
+          : "Collection deletion failed.",
+      );
+    } finally {
+      setBusy(false);
+    }
+  }
+
   return (
     <div className="profile-controls">
       <label className="profile-select">
@@ -168,6 +241,58 @@ export function ProfileSwitcher({
               </button>
             </div>
           </form>
+          <form onSubmit={(event) => void duplicateProfile(event)}>
+            <label htmlFor="duplicate-profile">Duplicate this collection</label>
+            <div>
+              <input
+                id="duplicate-profile"
+                key={`${activeProfile.slug}:${activeProfile.name}`}
+                maxLength={100}
+                name="name"
+                required
+                defaultValue={`${activeProfile.name} Copy`}
+              />
+              <button className="button button--small" disabled={busy}>
+                Duplicate
+              </button>
+            </div>
+          </form>
+          <section className="profile-manager__danger">
+            <p>Delete &ldquo;{activeProfile.name}&rdquo;?</p>
+            <small>
+              This permanently removes its owned cards and import records.
+              Shared card printings and artwork stay intact.
+            </small>
+            {confirmingDelete ? (
+              <div>
+                <button
+                  className="button button--small"
+                  disabled={busy}
+                  type="button"
+                  onClick={() => setConfirmingDelete(false)}
+                >
+                  Keep collection
+                </button>
+                <button
+                  className="button button--danger button--small"
+                  disabled={busy}
+                  type="button"
+                  onClick={() => void deleteProfile()}
+                >
+                  {busy ? "Deleting…" : "Delete collection"}
+                </button>
+              </div>
+            ) : (
+              <button
+                className="button button--danger button--small"
+                disabled={busy || profiles.length <= 1}
+                type="button"
+                onClick={() => setConfirmingDelete(true)}
+              >
+                Delete collection
+              </button>
+            )}
+          </section>
           {error ? <p role="alert">{error}</p> : null}
           <small>Published card printings and artwork stay shared.</small>
         </div>

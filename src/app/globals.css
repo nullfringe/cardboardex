@@ -216,6 +216,19 @@ img {
   font-size: 11px;
 }
 
+.profile-manager__danger {
+  display: grid;
+  gap: 8px;
+  border-top: 1px solid var(--line);
+  padding-top: 16px;
+}
+
+.profile-manager__danger > div {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 7px;
+}
+
 .brand {
   display: inline-flex;
   align-items: center;

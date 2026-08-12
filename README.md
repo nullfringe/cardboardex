@@ -33,7 +33,7 @@ The default database is `data/cardboardex.sqlite` and is intentionally ignored b
 
 ### Collection profiles
 
-A profile answers “whose collection is this?” It is a local ownership container, not a login, account, permission boundary, language, game, or era. Use the collection selector in the header to switch profiles; its Manage panel creates and renames profiles. The browser remembers the last selected profile locally. Profile deletion is intentionally not exposed, avoiding an easy destructive path for local ownership data.
+A profile answers “whose collection is this?” It is a local ownership container, not a login, account, permission boundary, language, game, or era. Use the collection selector in the header to switch profiles; its Manage panel creates, renames, duplicates, and deletes profiles. Duplicating a collection creates independent OwnedCards and provenance while reusing shared CardPrintings and artwork. Deleting a collection removes only its profile-scoped ownership/provenance; shared card metadata remains, and the final remaining collection cannot be deleted. The browser remembers the selected profile locally and switches to a deterministic remaining collection after deletion.
 
 Fresh setup creates **My Collection** and imports the seed into it. An existing single-collection database is migrated into that same default profile without resetting or re-importing its cards. Each profile can contain a mixture of games, eras, and printing languages; Japanese-card lookup is not implemented yet.
 

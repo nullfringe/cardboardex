@@ -1,9 +1,15 @@
 import { z } from "zod";
 
 import { getDatabase, type AppDatabase } from "@/db/client";
-import { ProfileRepository } from "@/lib/repositories/profile-repository";
+import {
+  DEFAULT_PROFILE_SLUG,
+  LastProfileDeletionError,
+  ProfileRepository,
+} from "@/lib/repositories/profile-repository";
 import type {
   CreateProfileInput,
+  DeleteProfileResult,
+  DuplicateProfileInput,
   Profile,
   UpdateProfileInput,
 } from "@/lib/types/profile";
@@ -23,6 +29,7 @@ export const profileSlugSchema = z
 
 const createProfileSchema = z.object({ name: profileName }).strict();
 const updateProfileSchema = z.object({ name: profileName }).strict();
+const duplicateProfileSchema = z.object({ name: profileName }).strict();
 
 function slugify(value: string): string {
   return value
@@ -72,6 +79,33 @@ export class ProfileService {
     const profile = this.repository.rename(parsedSlug, parsed.name);
     if (!profile) throw new ProfileNotFoundError();
     return profile;
+  }
+
+  duplicateProfile(slug: string, input: DuplicateProfileInput): Profile {
+    const parsedSlug = profileSlugSchema.parse(slug);
+    const parsed = duplicateProfileSchema.parse(input);
+    const baseSlug = slugify(parsed.name) || "collection";
+    const profile = this.repository.duplicate(
+      parsedSlug,
+      parsed.name,
+      baseSlug,
+    );
+    if (!profile) throw new ProfileNotFoundError();
+    return profile;
+  }
+
+  deleteProfile(
+    slug: string,
+  ): DeleteProfileResult & { fallbackProfile: Profile } {
+    const deleted = this.repository.delete(profileSlugSchema.parse(slug));
+    if (!deleted) throw new ProfileNotFoundError();
+    const fallbackProfile =
+      deleted.remainingProfiles.find(
+        (profile) => profile.slug === DEFAULT_PROFILE_SLUG,
+      ) ?? deleted.remainingProfiles[0];
+    if (!fallbackProfile) throw new LastProfileDeletionError();
+
+    return { ...deleted, fallbackProfile };
   }
 }
 

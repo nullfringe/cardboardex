@@ -13,3 +13,12 @@ export type CreateProfileInput = {
 export type UpdateProfileInput = {
   name: string;
 };
+
+export type DuplicateProfileInput = {
+  name: string;
+};
+
+export type DeleteProfileResult = {
+  deletedProfile: Profile;
+  remainingProfiles: Profile[];
+};
