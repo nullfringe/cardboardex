@@ -41,6 +41,52 @@ export type PrintingIdentityInput = {
   componentKey?: string | null;
 };
 
+export type PrintingIdentityAttributes = Pick<
+  PrintingIdentityInput,
+  "cardBackDesign" | "printingFinish" | "physicalForm"
+>;
+
+export function normalizePrintingIdentityAttribute(
+  value: string | null | undefined,
+): string | null {
+  if (value == null) return null;
+  const normalized = normalizeIdentityPart(value);
+  return normalized.length > 0 ? normalized : null;
+}
+
+export function printingIdentityAttributesCompatible(
+  existing: PrintingIdentityAttributes,
+  incoming: PrintingIdentityAttributes,
+): boolean {
+  return (["cardBackDesign", "printingFinish", "physicalForm"] as const).every(
+    (attribute) => {
+      const existingValue = normalizePrintingIdentityAttribute(
+        existing[attribute],
+      );
+      const incomingValue = normalizePrintingIdentityAttribute(
+        incoming[attribute],
+      );
+
+      return (
+        existingValue === null ||
+        incomingValue === null ||
+        existingValue === incomingValue
+      );
+    },
+  );
+}
+
+export function mergePrintingIdentityAttributes(
+  existing: PrintingIdentityAttributes,
+  incoming: PrintingIdentityAttributes,
+): Required<PrintingIdentityAttributes> {
+  return {
+    cardBackDesign: existing.cardBackDesign ?? incoming.cardBackDesign ?? null,
+    printingFinish: existing.printingFinish ?? incoming.printingFinish ?? null,
+    physicalForm: existing.physicalForm ?? incoming.physicalForm ?? null,
+  };
+}
+
 function identitySuffix(input: PrintingIdentityInput): string {
   const values = [
     ["finish", input.printingFinish],
@@ -51,8 +97,9 @@ function identitySuffix(input: PrintingIdentityInput): string {
   ] as const;
 
   return values.reduce((suffix, [label, value]) => {
-    return value
-      ? `${suffix}:${label}:${encodeURIComponent(normalizeIdentityPart(value))}`
+    const normalizedValue = normalizePrintingIdentityAttribute(value);
+    return normalizedValue
+      ? `${suffix}:${label}:${encodeURIComponent(normalizedValue)}`
       : suffix;
   }, "");
 }

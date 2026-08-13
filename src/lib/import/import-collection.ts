@@ -1,6 +1,6 @@
 import { createHash } from "node:crypto";
 
-import { and, eq, gt, isNull, or, sql } from "drizzle-orm";
+import { and, eq, gt, isNull, sql } from "drizzle-orm";
 
 import type { AppDatabase } from "@/db/client";
 import {
@@ -18,7 +18,11 @@ import {
   type OwnedCardMetadata,
   type PrintingMetadata,
 } from "@/db/schema";
-import { stablePrintingIdentityKey } from "@/lib/printing-identity";
+import {
+  mergePrintingIdentityAttributes,
+  printingIdentityAttributesCompatible,
+  stablePrintingIdentityKey,
+} from "@/lib/printing-identity";
 
 import {
   CollectionCsvError,
@@ -352,6 +356,8 @@ export function importCollectionCsv(
           catalogProvider: cardPrintings.catalogProvider,
           catalogExternalId: cardPrintings.catalogExternalId,
           cardBackDesign: cardPrintings.cardBackDesign,
+          printingFinish: cardPrintings.printingFinish,
+          physicalForm: cardPrintings.physicalForm,
         })
         .from(cardPrintings)
         .where(eq(cardPrintings.stableIdentityKey, stableIdentityKey))
@@ -360,12 +366,6 @@ export function importCollectionCsv(
         eq(cardPrintings.setId, cardSet.id),
         eq(cardPrintings.languageCode, row.languageCode),
         eq(cardPrintings.printingVariantKey, row.printingVariantKey),
-        row.printingFinish === null
-          ? isNull(cardPrintings.printingFinish)
-          : eq(cardPrintings.printingFinish, row.printingFinish),
-        row.physicalForm === null
-          ? isNull(cardPrintings.physicalForm)
-          : eq(cardPrintings.physicalForm, row.physicalForm),
         row.collectorNumberKey === null
           ? and(
               isNull(cardPrintings.collectorNumberKey),
@@ -373,13 +373,6 @@ export function importCollectionCsv(
             )
           : eq(cardPrintings.collectorNumberKey, row.collectorNumberKey),
       ];
-      if (row.cardBackDesign !== null) {
-        const compatibleBack = or(
-          isNull(cardPrintings.cardBackDesign),
-          eq(cardPrintings.cardBackDesign, row.cardBackDesign),
-        );
-        if (compatibleBack) candidateConditions.push(compatibleBack);
-      }
       let candidates = tx
         .select({
           id: cardPrintings.id,
@@ -387,10 +380,15 @@ export function importCollectionCsv(
           catalogProvider: cardPrintings.catalogProvider,
           catalogExternalId: cardPrintings.catalogExternalId,
           cardBackDesign: cardPrintings.cardBackDesign,
+          printingFinish: cardPrintings.printingFinish,
+          physicalForm: cardPrintings.physicalForm,
         })
         .from(cardPrintings)
         .where(and(...candidateConditions))
-        .all();
+        .all()
+        .filter((candidate) =>
+          printingIdentityAttributesCompatible(candidate, row),
+        );
       if (componentGroup && row.componentGroup) {
         candidates = candidates.filter((candidate) => {
           const membership = tx
@@ -422,7 +420,7 @@ export function importCollectionCsv(
           },
         );
       }
-      if (candidates.length > 1) {
+      if (!exactPrinting && candidates.length > 1) {
         throw new CollectionCsvError(
           "matches multiple local printings; add exact distinguishing facts",
           {
@@ -488,22 +486,41 @@ export function importCollectionCsv(
             catalogProvider: cardPrintings.catalogProvider,
             catalogExternalId: cardPrintings.catalogExternalId,
             cardBackDesign: cardPrintings.cardBackDesign,
+            printingFinish: cardPrintings.printingFinish,
+            physicalForm: cardPrintings.physicalForm,
           })
           .get();
       } else {
+        const resolvedAttributes = mergePrintingIdentityAttributes(
+          printing,
+          row,
+        );
+        const catalogEnrichment =
+          row.catalogProvider !== null && printing.catalogProvider === null;
         tx.update(cardPrintings)
           .set({
             ...publishedValues,
-            stableIdentityKey:
-              row.catalogProvider && printing.catalogProvider === null
-                ? stableIdentityKey
-                : printing.stableIdentityKey,
+            stableIdentityKey: catalogEnrichment
+              ? stablePrintingIdentityKey({
+                  gameSlug,
+                  setCode: row.setCode,
+                  languageCode: row.languageCode,
+                  name: row.name,
+                  collectorNumber: row.collectorNumber,
+                  printingVariantKey: row.printingVariantKey,
+                  catalogProvider: row.catalogProvider,
+                  catalogSetId: row.catalogSetId,
+                  catalogCardId: row.catalogCardId,
+                  componentGroupKey: row.componentGroup?.groupKey,
+                  componentKey: row.componentGroup?.componentKey,
+                  ...resolvedAttributes,
+                })
+              : printing.stableIdentityKey,
             catalogProvider:
               row.catalogProvider ?? printing.catalogProvider ?? null,
             catalogExternalId:
               row.catalogCardId ?? printing.catalogExternalId ?? null,
-            cardBackDesign:
-              printing.cardBackDesign ?? row.cardBackDesign ?? null,
+            ...resolvedAttributes,
             updatedAt: sql`CURRENT_TIMESTAMP`,
           })
           .where(eq(cardPrintings.id, printing.id))

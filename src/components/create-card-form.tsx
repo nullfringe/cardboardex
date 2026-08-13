@@ -108,7 +108,19 @@ export function CreateCardForm({ profile }: { profile: Profile }) {
       const groupKey = blankToNull(formData.get("componentGroupKey"));
       const groupType = blankToNull(formData.get("componentGroupType"));
       const componentKey = blankToNull(formData.get("componentKey"));
-      const hasComponentGroup = Boolean(groupKey || groupType || componentKey);
+      const componentGroupName = blankToNull(
+        formData.get("componentGroupName"),
+      );
+      const expectedComponentCount = optionalInteger(
+        formData,
+        "expectedComponentCount",
+      );
+      const hasComponentGroup =
+        groupKey !== null ||
+        groupType !== null ||
+        componentKey !== null ||
+        componentGroupName !== null ||
+        expectedComponentCount !== null;
       const payload: CreateCollectionEntryInput = {
         gameName,
         gameSlug: slugify(gameName),
@@ -131,11 +143,8 @@ export function CreateCardForm({ profile }: { profile: Profile }) {
           ? {
               groupKey: groupKey ?? "",
               groupType: groupType ?? "",
-              name: blankToNull(formData.get("componentGroupName")),
-              expectedComponentCount: optionalInteger(
-                formData,
-                "expectedComponentCount",
-              ),
+              name: componentGroupName,
+              expectedComponentCount,
               componentKey: componentKey ?? "",
             }
           : null,

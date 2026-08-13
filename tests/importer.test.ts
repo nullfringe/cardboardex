@@ -750,6 +750,138 @@ describe("collection import", () => {
     ).toEqual(ownedBefore);
   });
 
+  it("enriches missing printing attributes and preserves them on legacy re-import", () => {
+    const options = {
+      profileId,
+      sourceKey: "tests/fixtures/printing-attribute-enrichment.csv",
+    };
+
+    importCollectionCsv(connection.db, japaneseFixture, options);
+    const printingIdsBefore = connection.db
+      .select({ id: cardPrintings.id })
+      .from(cardPrintings)
+      .orderBy(cardPrintings.id)
+      .all();
+    const ownershipBefore = connection.db
+      .select({ id: ownedCards.id, printingId: ownedCards.printingId })
+      .from(ownedCards)
+      .orderBy(ownedCards.id)
+      .all();
+
+    importCollectionCsv(connection.db, catalogingFixture(), options);
+    const enriched = connection.db
+      .select({
+        id: cardPrintings.id,
+        name: cardPrintings.name,
+        cardBackDesign: cardPrintings.cardBackDesign,
+        printingFinish: cardPrintings.printingFinish,
+        physicalForm: cardPrintings.physicalForm,
+      })
+      .from(cardPrintings)
+      .where(eq(cardPrintings.name, "ピカチュウ"))
+      .get();
+
+    expect(enriched).toEqual({
+      id: printingIdsBefore[0]?.id,
+      name: "ピカチュウ",
+      cardBackDesign: "Pocket Monsters Card Game",
+      printingFinish: "regular non-holo",
+      physicalForm: "standard",
+    });
+    expect(
+      connection.db
+        .select({ id: ownedCards.id, printingId: ownedCards.printingId })
+        .from(ownedCards)
+        .orderBy(ownedCards.id)
+        .all(),
+    ).toEqual(ownershipBefore);
+
+    importCollectionCsv(connection.db, japaneseFixture, options);
+
+    expect(
+      connection.db
+        .select({
+          id: cardPrintings.id,
+          cardBackDesign: cardPrintings.cardBackDesign,
+          printingFinish: cardPrintings.printingFinish,
+          physicalForm: cardPrintings.physicalForm,
+        })
+        .from(cardPrintings)
+        .where(eq(cardPrintings.name, "ピカチュウ"))
+        .get(),
+    ).toEqual({
+      id: printingIdsBefore[0]?.id,
+      cardBackDesign: "Pocket Monsters Card Game",
+      printingFinish: "regular non-holo",
+      physicalForm: "standard",
+    });
+    expect(
+      connection.db
+        .select({ id: cardPrintings.id })
+        .from(cardPrintings)
+        .orderBy(cardPrintings.id)
+        .all(),
+    ).toEqual(printingIdsBefore);
+    expect(
+      connection.db
+        .select({ id: ownedCards.id, printingId: ownedCards.printingId })
+        .from(ownedCards)
+        .orderBy(ownedCards.id)
+        .all(),
+    ).toEqual(ownershipBefore);
+  });
+
+  it("rejects ambiguous legacy import across known printing finishes", () => {
+    const service = createCollectionService(connection.db);
+    const shared = {
+      gameSlug: "pokemon-tcg",
+      gameName: "Pokémon Trading Card Game",
+      setCode: "JP-PMCG1",
+      setName: "拡張パック",
+      name: "ピカチュウ",
+      canonicalName: "Pikachu",
+      collectorNumber: null,
+      languageCode: "ja",
+      printingVariantKey: "standard",
+      physicalForm: "standard",
+      cardKind: "Pokémon",
+      subtype: "Basic",
+      pokemonType: "Lightning",
+      hp: 40,
+      quantity: 1,
+    } as const;
+    service.createCollectionEntry("my-collection", {
+      ...shared,
+      printingFinish: "holo",
+    });
+    service.createCollectionEntry("my-collection", {
+      ...shared,
+      printingFinish: "reverse holo",
+    });
+    const printingsBefore = connection.db.select().from(cardPrintings).all();
+    const ownedBefore = connection.db.select().from(ownedCards).all();
+
+    expect(() =>
+      importCollectionCsv(connection.db, japaneseFixture, {
+        profileId,
+        sourceKey: "tests/fixtures/ambiguous-legacy.csv",
+      }),
+    ).toThrow(/matches multiple local printings/u);
+    expect(connection.db.select().from(cardPrintings).all()).toEqual(
+      printingsBefore,
+    );
+    expect(connection.db.select().from(ownedCards).all()).toEqual(ownedBefore);
+    expect(
+      connection.db
+        .select({
+          catalogProvider: cardSets.catalogProvider,
+          catalogExternalId: cardSets.catalogExternalId,
+        })
+        .from(cardSets)
+        .get(),
+    ).toEqual({ catalogProvider: null, catalogExternalId: null });
+  });
+
   it("imports optional photo provenance and printing catalog data idempotently", () => {
     const input = catalogingFixture();
     const options = {

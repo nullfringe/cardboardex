@@ -635,6 +635,154 @@ describe("collection service", () => {
     });
   });
 
+  it("enriches unknown printing attributes in place using semantic normalization", () => {
+    const shared = cardInput({
+      setCode: "ENR-ATTR",
+      setName: "Attribute Enrichment",
+      name: "Enrichment Variant",
+      collectorNumber: "003/010",
+      imageProvider: "fixture",
+      imageExternalId: "enrichment-variant",
+      imageUrl: "https://images.example.com/enrichment-variant.png",
+      pokemonType: "Psychic",
+      hp: 60,
+      attacks: [{ name: "Recall", cost: ["P"], damage: "10" }],
+    });
+    const original = service.createCollectionEntry(profileSlug, shared);
+    const finishEnriched = service.createCollectionEntry(profileSlug, {
+      ...shared,
+      printingFinish: "  Holo  ",
+    });
+    const formEnriched = service.createCollectionEntry(profileSlug, {
+      ...shared,
+      printingFinish: "holo",
+      physicalForm: "  Standard  ",
+      cardBackDesign: "Ｐｏｋｅｍｏｎ Back",
+    });
+    const cosmeticallyEquivalent = service.createCollectionEntry(profileSlug, {
+      ...shared,
+      printingFinish: "HOLO",
+      physicalForm: "standard",
+      cardBackDesign: "Pokemon Back",
+    });
+    const missingAttributes = service.createCollectionEntry(
+      profileSlug,
+      shared,
+    );
+
+    expect([
+      finishEnriched.printingId,
+      formEnriched.printingId,
+      cosmeticallyEquivalent.printingId,
+      missingAttributes.printingId,
+    ]).toEqual([
+      original.printingId,
+      original.printingId,
+      original.printingId,
+      original.printingId,
+    ]);
+    expect(cosmeticallyEquivalent).toMatchObject({
+      printingFinish: "Holo",
+      physicalForm: "Standard",
+      cardBackDesign: "Ｐｏｋｅｍｏｎ Back",
+      imageUrl: "https://images.example.com/enrichment-variant.png",
+    });
+    expect(
+      service.getCollectionEntry(profileSlug, original.ownedCardId),
+    ).toMatchObject({
+      printingId: original.printingId,
+      printingFinish: "Holo",
+      physicalForm: "Standard",
+      cardBackDesign: "Ｐｏｋｅｍｏｎ Back",
+    });
+    expect(connection.db.select().from(cardPrintings).all()).toHaveLength(1);
+    expect(connection.db.select().from(ownedCards).all()).toHaveLength(5);
+    expect(connection.db.select().from(pokemonDetails).all()).toHaveLength(1);
+    expect(connection.db.select().from(attacks).all()).toHaveLength(1);
+  });
+
+  it("keeps known conflicting finishes distinct and rejects ambiguous missing facts", () => {
+    const shared = cardInput({
+      setCode: "AMB",
+      setName: "Ambiguous Variants",
+      name: "Ambiguous Card",
+      collectorNumber: "004/010",
+      physicalForm: "standard",
+    });
+    const holo = service.createCollectionEntry(profileSlug, {
+      ...shared,
+      printingFinish: "holo",
+    });
+    const reverse = service.createCollectionEntry(profileSlug, {
+      ...shared,
+      printingFinish: "reverse holo",
+    });
+
+    expect(reverse.printingId).not.toBe(holo.printingId);
+    expect(connection.db.select().from(cardPrintings).all()).toHaveLength(2);
+    expect(connection.db.select().from(ownedCards).all()).toHaveLength(2);
+
+    expect(() =>
+      service.createCollectionEntry(profileSlug, {
+        ...shared,
+        printingFinish: null,
+        physicalForm: null,
+      }),
+    ).toThrow(/multiple compatible local printings/u);
+    expect(connection.db.select().from(cardPrintings).all()).toHaveLength(2);
+    expect(connection.db.select().from(ownedCards).all()).toHaveLength(2);
+  });
+
+  it("prefers an exact stable identity over additional relaxed candidates", () => {
+    const shared = cardInput({
+      setCode: "EXACT",
+      setName: "Exact Match Set",
+      name: "Exact Match Card",
+      collectorNumber: "005/010",
+    });
+    const original = service.createCollectionEntry(profileSlug, shared);
+    service.createCollectionEntry(profileSlug, {
+      ...shared,
+      printingFinish: "holo",
+      physicalForm: "standard",
+    });
+    const distinct = service.createCollectionEntry(profileSlug, {
+      ...shared,
+      printingFinish: "reverse holo",
+      physicalForm: "standard",
+    });
+
+    const legacyMissingAttributes = service.createCollectionEntry(
+      profileSlug,
+      shared,
+    );
+
+    expect(distinct.printingId).not.toBe(original.printingId);
+    expect(legacyMissingAttributes.printingId).toBe(original.printingId);
+    expect(connection.db.select().from(cardPrintings).all()).toHaveLength(2);
+    expect(connection.db.select().from(ownedCards).all()).toHaveLength(4);
+  });
+
+  it("rejects partial component-group metadata as controlled validation", () => {
+    expect(() =>
+      service.createCollectionEntry(
+        profileSlug,
+        cardInput({
+          componentGroup: {
+            groupKey: "",
+            groupType: "",
+            name: "Partially entered group",
+            expectedComponentCount: 2,
+            componentKey: "",
+          },
+        }),
+      ),
+    ).toThrow(/Component group key is required/u);
+    expect(connection.db.select().from(printingGroups).all()).toHaveLength(0);
+    expect(connection.db.select().from(cardPrintings).all()).toHaveLength(0);
+    expect(connection.db.select().from(ownedCards).all()).toHaveLength(0);
+  });
+
   it("stores semantic printed identifiers without fabricating a collector number", () => {
     const created = service.createCollectionEntry(
       profileSlug,

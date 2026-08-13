@@ -28,6 +28,8 @@ import { languageName } from "@/lib/languages";
 import {
   collectorIdentifierKey,
   collectorIdentifierSort,
+  mergePrintingIdentityAttributes,
+  printingIdentityAttributesCompatible,
   stablePrintingIdentityKey,
 } from "@/lib/printing-identity";
 import type {
@@ -859,6 +861,8 @@ export class CollectionRepository {
           catalogProvider: cardPrintings.catalogProvider,
           catalogExternalId: cardPrintings.catalogExternalId,
           cardBackDesign: cardPrintings.cardBackDesign,
+          printingFinish: cardPrintings.printingFinish,
+          physicalForm: cardPrintings.physicalForm,
         })
         .from(cardPrintings)
         .where(eq(cardPrintings.stableIdentityKey, stableIdentityKey))
@@ -868,12 +872,6 @@ export class CollectionRepository {
         eq(cardPrintings.setId, cardSet.id),
         eq(cardPrintings.languageCode, languageCode),
         eq(cardPrintings.printingVariantKey, variantKey),
-        input.printingFinish == null
-          ? isNull(cardPrintings.printingFinish)
-          : eq(cardPrintings.printingFinish, input.printingFinish),
-        input.physicalForm == null
-          ? isNull(cardPrintings.physicalForm)
-          : eq(cardPrintings.physicalForm, input.physicalForm),
         printingKey === null
           ? and(
               isNull(cardPrintings.collectorNumberKey),
@@ -881,14 +879,6 @@ export class CollectionRepository {
             )
           : eq(cardPrintings.collectorNumberKey, printingKey),
       ];
-      if (input.cardBackDesign != null) {
-        const compatibleBack = or(
-          isNull(cardPrintings.cardBackDesign),
-          eq(cardPrintings.cardBackDesign, input.cardBackDesign),
-        );
-        if (compatibleBack) candidateConditions.push(compatibleBack);
-      }
-
       let candidates = tx
         .select({
           id: cardPrintings.id,
@@ -897,10 +887,15 @@ export class CollectionRepository {
           catalogProvider: cardPrintings.catalogProvider,
           catalogExternalId: cardPrintings.catalogExternalId,
           cardBackDesign: cardPrintings.cardBackDesign,
+          printingFinish: cardPrintings.printingFinish,
+          physicalForm: cardPrintings.physicalForm,
         })
         .from(cardPrintings)
         .where(and(...candidateConditions))
-        .all();
+        .all()
+        .filter((candidate) =>
+          printingIdentityAttributesCompatible(candidate, input),
+        );
 
       if (componentGroup && input.componentGroup) {
         candidates = candidates.filter((candidate) => {
@@ -931,7 +926,7 @@ export class CollectionRepository {
           "incompatible published printing facts",
         );
       }
-      if (candidates.length > 1) {
+      if (!exactPrinting && candidates.length > 1) {
         throw new CardPrintingCatalogConflictError(
           input.name,
           "multiple compatible local printings",
@@ -995,10 +990,28 @@ export class CollectionRepository {
             catalogProvider: cardPrintings.catalogProvider,
             catalogExternalId: cardPrintings.catalogExternalId,
             cardBackDesign: cardPrintings.cardBackDesign,
+            printingFinish: cardPrintings.printingFinish,
+            physicalForm: cardPrintings.physicalForm,
           })
           .get();
         createdPrinting = true;
       } else {
+        const resolvedAttributes = mergePrintingIdentityAttributes(
+          printing,
+          input,
+        );
+        const catalogEnrichment =
+          input.catalogProvider != null &&
+          input.catalogCardId != null &&
+          printing.catalogProvider === null;
+        const attributeEnrichment =
+          (printing.cardBackDesign === null &&
+            resolvedAttributes.cardBackDesign !== null) ||
+          (printing.printingFinish === null &&
+            resolvedAttributes.printingFinish !== null) ||
+          (printing.physicalForm === null &&
+            resolvedAttributes.physicalForm !== null);
+
         if (input.catalogProvider && input.catalogCardId) {
           if (
             printing.catalogProvider !== null &&
@@ -1011,27 +1024,25 @@ export class CollectionRepository {
               `${input.catalogProvider}/${input.catalogCardId}`,
             );
           }
+        }
+
+        if (catalogEnrichment || attributeEnrichment) {
+          const reconciledStableIdentityKey = catalogEnrichment
+            ? stablePrintingIdentityKey({
+                ...identityInput,
+                ...resolvedAttributes,
+              })
+            : printing.stableIdentityKey;
           tx.update(cardPrintings)
             .set({
-              catalogProvider: input.catalogProvider,
-              catalogExternalId: input.catalogCardId,
-              stableIdentityKey:
-                printing.catalogProvider === null
-                  ? stableIdentityKey
-                  : printing.stableIdentityKey,
-              cardBackDesign:
-                printing.cardBackDesign ?? input.cardBackDesign ?? null,
-              updatedAt: sql`CURRENT_TIMESTAMP`,
-            })
-            .where(eq(cardPrintings.id, printing.id))
-            .run();
-        } else if (
-          printing.cardBackDesign === null &&
-          input.cardBackDesign != null
-        ) {
-          tx.update(cardPrintings)
-            .set({
-              cardBackDesign: input.cardBackDesign,
+              ...(catalogEnrichment
+                ? {
+                    catalogProvider: input.catalogProvider,
+                    catalogExternalId: input.catalogCardId,
+                  }
+                : {}),
+              stableIdentityKey: reconciledStableIdentityKey,
+              ...resolvedAttributes,
               updatedAt: sql`CURRENT_TIMESTAMP`,
             })
             .where(eq(cardPrintings.id, printing.id))
