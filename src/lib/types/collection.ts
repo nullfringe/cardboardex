@@ -11,6 +11,7 @@ export type CollectionSort = {
 export type CollectionFilters = {
   search?: string;
   gameSlug?: string;
+  languageCode?: string;
   cardKind?: string;
   pokemonType?: string;
   setCode?: string;
@@ -32,9 +33,10 @@ export type CollectionListItem = {
   gameSlug: string;
   gameName: string;
   name: string;
+  canonicalName: string | null;
   setName: string;
   setCode: string;
-  collectorNumber: string;
+  collectorNumber: string | null;
   languageCode: string;
   cardKind: string;
   subtype: string | null;
@@ -75,6 +77,9 @@ export type CollectionDetail = CollectionListItem & {
   attacks: CollectionAttack[];
   notes: string | null;
   deckPool: string | null;
+  stableIdentityKey: string;
+  catalogProvider: string | null;
+  catalogExternalId: string | null;
   externalReferenceUrl: string | null;
   createdAt: string;
   updatedAt: string;
@@ -94,6 +99,7 @@ export type CollectionFacets = {
   subtypes: CollectionFacetOption[];
   finishVariants: CollectionFacetOption[];
   rarities: CollectionFacetOption[];
+  languages: CollectionFacetOption[];
 };
 
 export type UpdateOwnedCardInput = {
@@ -117,9 +123,13 @@ export type CreateCollectionEntryInput = {
   setCode: string;
   setName: string;
   name: string;
-  collectorNumber: string;
+  canonicalName?: string | null;
+  collectorNumber?: string | null;
   printingVariantKey?: string;
   languageCode?: string;
+  catalogProvider?: string | null;
+  catalogSetId?: string | null;
+  catalogCardId?: string | null;
   cardKind: string;
   subtype?: string | null;
   rarity?: string | null;

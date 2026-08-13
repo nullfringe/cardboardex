@@ -54,12 +54,23 @@ export const cardSets = sqliteTable(
       }),
     code: text("code").notNull(),
     name: text("name").notNull(),
+    languageCode: text("language_code").notNull().default("en"),
+    catalogProvider: text("catalog_provider"),
+    catalogExternalId: text("catalog_external_id"),
     createdAt: text("created_at")
       .notNull()
       .default(sql`CURRENT_TIMESTAMP`),
   },
   (table) => [
-    uniqueIndex("card_sets_game_code_unique").on(table.gameId, table.code),
+    check(
+      "card_sets_catalog_identity_pair",
+      sql`(${table.catalogProvider} IS NULL) = (${table.catalogExternalId} IS NULL)`,
+    ),
+    uniqueIndex("card_sets_game_code_language_unique").on(
+      table.gameId,
+      table.code,
+      table.languageCode,
+    ),
     index("card_sets_name_index").on(table.name),
   ],
 );
@@ -75,13 +86,17 @@ export const cardPrintings = sqliteTable(
         onUpdate: "cascade",
       }),
     name: text("name").notNull(),
-    collectorNumber: text("collector_number").notNull(),
-    collectorNumberKey: text("collector_number_key").notNull(),
+    canonicalName: text("canonical_name"),
+    collectorNumber: text("collector_number"),
+    collectorNumberKey: text("collector_number_key"),
     collectorNumberSort: integer("collector_number_sort").notNull(),
+    stableIdentityKey: text("stable_identity_key").notNull(),
     printingVariantKey: text("printing_variant_key")
       .notNull()
       .default("standard"),
     languageCode: text("language_code").notNull().default("en"),
+    catalogProvider: text("catalog_provider"),
+    catalogExternalId: text("catalog_external_id"),
     cardKind: text("card_kind").notNull(),
     subtype: text("subtype"),
     rarity: text("rarity"),
@@ -106,12 +121,11 @@ export const cardPrintings = sqliteTable(
       .default(sql`CURRENT_TIMESTAMP`),
   },
   (table) => [
-    uniqueIndex("card_printings_identity_unique").on(
-      table.setId,
-      table.collectorNumberKey,
-      table.printingVariantKey,
-      table.languageCode,
+    check(
+      "card_printings_catalog_identity_pair",
+      sql`(${table.catalogProvider} IS NULL) = (${table.catalogExternalId} IS NULL)`,
     ),
+    uniqueIndex("card_printings_identity_unique").on(table.stableIdentityKey),
     index("card_printings_name_index").on(table.name),
     index("card_printings_kind_index").on(table.cardKind),
   ],

@@ -380,6 +380,66 @@ describe("collection service", () => {
     ).toThrow();
   });
 
+  it("supports deterministic collector-numberless Japanese printings", () => {
+    const english = service.createCollectionEntry(
+      profileSlug,
+      cardInput({
+        setCode: "BS",
+        setName: "Base Set",
+        name: "Abra",
+        collectorNumber: "43/102",
+        languageCode: "en",
+        printingVariantKey: "unlimited",
+      }),
+    );
+    const japaneseInput = cardInput({
+      setCode: "JP-PMCG1",
+      setName: "拡張パック",
+      name: "ケーシィ",
+      canonicalName: "Abra",
+      collectorNumber: null,
+      languageCode: "ja",
+      printingVariantKey: "no-rarity",
+      catalogProvider: "tcgdex",
+      catalogSetId: "PMCG1",
+      catalogCardId: "PMCG1-043",
+    });
+    const japanese = service.createCollectionEntry(profileSlug, japaneseInput);
+    const duplicateOwnership = service.createCollectionEntry(
+      profileSlug,
+      japaneseInput,
+    );
+
+    expect(japanese).toMatchObject({
+      name: "ケーシィ",
+      canonicalName: "Abra",
+      collectorNumber: null,
+      languageCode: "ja",
+      printingVariantKey: "no-rarity",
+      catalogProvider: "tcgdex",
+      catalogExternalId: "PMCG1-043",
+    });
+    expect(japanese.printingId).not.toBe(english.printingId);
+    expect(duplicateOwnership.printingId).toBe(japanese.printingId);
+    expect(duplicateOwnership.ownedCardId).not.toBe(japanese.ownedCardId);
+    expect(japanese.stableIdentityKey).toBe(
+      "catalog:tcgdex:ja:pmcg1-043:no-rarity",
+    );
+    expect(
+      service
+        .listCollection(profileSlug, {
+          sort: { field: "collectorNumber", direction: "asc" },
+        })
+        .map((card) => card.collectorNumber),
+    ).toEqual(["43/102", null, null]);
+    expect(
+      service.listCollection(profileSlug, { search: "Abra" }),
+    ).toHaveLength(3);
+    expect(
+      service.listCollection(profileSlug, { search: "ケーシィ" }),
+    ).toHaveLength(2);
+  });
+
   it("isolates ownership while sharing one canonical printing between profiles", () => {
     const secondProfile = createProfileService(connection.db).createProfile({
       name: "Ekah",

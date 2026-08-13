@@ -20,6 +20,12 @@ import {
   pokemonDetails,
   profiles,
 } from "@/db/schema";
+import { languageName } from "@/lib/languages";
+import {
+  collectorIdentifierKey,
+  collectorIdentifierSort,
+  stablePrintingIdentityKey,
+} from "@/lib/printing-identity";
 import type {
   CollectionDetail,
   CollectionFacetOption,
@@ -45,6 +51,7 @@ const listSelection = {
   gameSlug: games.slug,
   gameName: games.name,
   name: cardPrintings.name,
+  canonicalName: cardPrintings.canonicalName,
   setName: cardSets.name,
   setCode: cardSets.code,
   collectorNumber: cardPrintings.collectorNumber,
@@ -84,22 +91,6 @@ function normalizedText(value: string | null | undefined): string | null {
   return normalized ? normalized : null;
 }
 
-export function collectorNumberKey(collectorNumber: string): string {
-  return collectorNumber
-    .normalize("NFKC")
-    .trim()
-    .toLocaleLowerCase("en-US")
-    .replace(/\s+/g, "")
-    .split("/")
-    .map((part) => (/^\d+$/.test(part) ? String(Number(part)) : part))
-    .join("/");
-}
-
-function collectorNumberSort(collectorNumber: string): number {
-  const numerator = collectorNumber.trim().split("/", 1)[0]?.match(/\d+/)?.[0];
-  return numerator ? Number(numerator) : 2_147_483_647;
-}
-
 function filterConditions(filters: CollectionFilters): SQL[] {
   const conditions: SQL[] = [];
   const search = normalizedText(filters.search);
@@ -109,6 +100,7 @@ function filterConditions(filters: CollectionFilters): SQL[] {
     const escapeCharacter = "\\";
     const searchCondition = or(
       sql`lower(${cardPrintings.name}) like ${pattern} escape ${escapeCharacter}`,
+      sql`lower(${cardPrintings.canonicalName}) like ${pattern} escape ${escapeCharacter}`,
       sql`lower(${cardPrintings.collectorNumber}) like ${pattern} escape ${escapeCharacter}`,
       sql`lower(${cardSets.name}) like ${pattern} escape ${escapeCharacter}`,
     );
@@ -120,6 +112,11 @@ function filterConditions(filters: CollectionFilters): SQL[] {
 
   if (normalizedText(filters.gameSlug)) {
     conditions.push(eq(games.slug, filters.gameSlug!.trim()));
+  }
+  if (normalizedText(filters.languageCode)) {
+    conditions.push(
+      eq(cardPrintings.languageCode, filters.languageCode!.trim()),
+    );
   }
   if (normalizedText(filters.cardKind)) {
     conditions.push(eq(cardPrintings.cardKind, filters.cardKind!.trim()));
@@ -163,17 +160,20 @@ function orderBy(sort: CollectionSort): SQL[] {
   const lowerType = sql`lower(${pokemonDetails.pokemonType})`;
   const nullTypeLast = asc(sql`${pokemonDetails.pokemonType} is null`);
   const nullHpLast = asc(sql`${pokemonDetails.hp} is null`);
+  const nullCollectorLast = asc(sql`${cardPrintings.collectorNumber} is null`);
 
   switch (sort.field) {
     case "set":
       return [
         primarySort(lowerSet, sort.direction),
+        nullCollectorLast,
         asc(cardPrintings.collectorNumberSort),
         asc(lowerName),
         asc(ownedCards.id),
       ];
     case "collectorNumber":
       return [
+        nullCollectorLast,
         primarySort(cardPrintings.collectorNumberSort, sort.direction),
         primarySort(cardPrintings.collectorNumber, sort.direction),
         asc(lowerName),
@@ -244,6 +244,9 @@ export class CollectionRepository {
       .select({
         ...listSelection,
         printingVariantKey: cardPrintings.printingVariantKey,
+        stableIdentityKey: cardPrintings.stableIdentityKey,
+        catalogProvider: cardPrintings.catalogProvider,
+        catalogExternalId: cardPrintings.catalogExternalId,
         specialRuleBox: cardPrintings.specialRuleBox,
         abilityRule: cardPrintings.abilityRule,
         rulesText: cardPrintings.rulesText,
@@ -410,6 +413,18 @@ export class CollectionRepository {
       .groupBy(cardPrintings.rarity)
       .orderBy(asc(cardPrintings.rarity))
       .all();
+    const languageRows = this.db
+      .select({
+        value: cardPrintings.languageCode,
+        label: cardPrintings.languageCode,
+        count,
+      })
+      .from(ownedCards)
+      .innerJoin(cardPrintings, eq(ownedCards.printingId, cardPrintings.id))
+      .where(eq(ownedCards.profileId, profileId))
+      .groupBy(cardPrintings.languageCode)
+      .orderBy(asc(cardPrintings.languageCode))
+      .all();
 
     return {
       games: facetsFromRows(gameRows),
@@ -431,6 +446,11 @@ export class CollectionRepository {
       rarities: facetsFromRows(
         rarityRows as Array<{ value: string; label: string; count: number }>,
       ),
+      languages: languageRows.map((row) => ({
+        value: row.value,
+        label: languageName(row.value),
+        count: Number(row.count),
+      })),
     };
   }
 
@@ -492,6 +512,7 @@ export class CollectionRepository {
     input: CreateCollectionEntryInput,
   ): CollectionDetail {
     const ownedCardId = this.db.transaction((tx) => {
+      const languageCode = input.languageCode ?? "en";
       let game = tx
         .select({ id: games.id, name: games.name })
         .from(games)
@@ -510,32 +531,53 @@ export class CollectionRepository {
         .select({ id: cardSets.id, name: cardSets.name })
         .from(cardSets)
         .where(
-          and(eq(cardSets.gameId, game.id), eq(cardSets.code, input.setCode)),
+          and(
+            eq(cardSets.gameId, game.id),
+            eq(cardSets.code, input.setCode),
+            eq(cardSets.languageCode, languageCode),
+          ),
         )
         .get();
 
       if (!cardSet) {
         cardSet = tx
           .insert(cardSets)
-          .values({ gameId: game.id, code: input.setCode, name: input.setName })
+          .values({
+            gameId: game.id,
+            code: input.setCode,
+            name: input.setName,
+            languageCode,
+            catalogProvider: input.catalogProvider,
+            catalogExternalId: input.catalogSetId,
+          })
           .returning({ id: cardSets.id, name: cardSets.name })
           .get();
+      } else if (input.catalogProvider && input.catalogSetId) {
+        tx.update(cardSets)
+          .set({
+            catalogProvider: input.catalogProvider,
+            catalogExternalId: input.catalogSetId,
+          })
+          .where(eq(cardSets.id, cardSet.id))
+          .run();
       }
 
-      const printingKey = collectorNumberKey(input.collectorNumber);
       const variantKey = input.printingVariantKey ?? "standard";
-      const languageCode = input.languageCode ?? "en";
+      const printingKey = collectorIdentifierKey(input.collectorNumber ?? null);
+      const stableIdentityKey = stablePrintingIdentityKey({
+        gameSlug: input.gameSlug,
+        setCode: input.setCode,
+        languageCode,
+        name: input.name,
+        collectorNumber: input.collectorNumber ?? null,
+        printingVariantKey: variantKey,
+        catalogProvider: input.catalogProvider,
+        catalogCardId: input.catalogCardId,
+      });
       let printing = tx
         .select({ id: cardPrintings.id })
         .from(cardPrintings)
-        .where(
-          and(
-            eq(cardPrintings.setId, cardSet.id),
-            eq(cardPrintings.collectorNumberKey, printingKey),
-            eq(cardPrintings.printingVariantKey, variantKey),
-            eq(cardPrintings.languageCode, languageCode),
-          ),
-        )
+        .where(eq(cardPrintings.stableIdentityKey, stableIdentityKey))
         .get();
 
       let createdPrinting = false;
@@ -557,11 +599,17 @@ export class CollectionRepository {
           .values({
             setId: cardSet.id,
             name: input.name,
-            collectorNumber: input.collectorNumber,
+            canonicalName: input.canonicalName,
+            collectorNumber: input.collectorNumber ?? null,
             collectorNumberKey: printingKey,
-            collectorNumberSort: collectorNumberSort(input.collectorNumber),
+            collectorNumberSort: collectorIdentifierSort(
+              input.collectorNumber ?? null,
+            ),
+            stableIdentityKey,
             printingVariantKey: variantKey,
             languageCode,
+            catalogProvider: input.catalogProvider,
+            catalogExternalId: input.catalogCardId,
             cardKind: input.cardKind,
             subtype: input.subtype,
             rarity: input.rarity,

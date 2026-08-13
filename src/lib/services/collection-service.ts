@@ -23,7 +23,8 @@ const requiredText = (label: string, maximum = 200) =>
     .string({ error: `${label} must be text.` })
     .trim()
     .min(1, `${label} is required.`)
-    .max(maximum, `${label} is too long.`);
+    .max(maximum, `${label} is too long.`)
+    .transform((value) => value.normalize("NFC"));
 
 const nullableText = (label: string, maximum = 10_000) =>
   z
@@ -31,7 +32,7 @@ const nullableText = (label: string, maximum = 10_000) =>
     .optional()
     .transform((value) => {
       if (value === undefined || value === null) return value;
-      const trimmed = value.trim();
+      const trimmed = value.trim().normalize("NFC");
       return trimmed.length > 0 ? trimmed : null;
     })
     .refine(
@@ -87,6 +88,7 @@ export const collectionListQuerySchema = z
   .object({
     search: optionalFilterText(500),
     gameSlug: optionalFilterText(),
+    languageCode: optionalFilterText(20),
     cardKind: optionalFilterText(),
     pokemonType: optionalFilterText(),
     setCode: optionalFilterText(),
@@ -148,13 +150,17 @@ export const createCollectionEntrySchema = z
     setCode: requiredText("Set code", 100),
     setName: requiredText("Set name", 300),
     name: requiredText("Card name", 300),
-    collectorNumber: requiredText("Collector number", 100),
+    canonicalName: nullableText("English / canonical name", 300),
+    collectorNumber: nullableText("Collector identifier", 100),
     languageCode: z
       .string()
       .trim()
       .toLowerCase()
       .regex(/^[a-z]{2}(?:-[a-z]{2})?$/u, "Language code is invalid.")
-      .optional(),
+      .default("en"),
+    catalogProvider: nullableText("Catalog provider", 100),
+    catalogSetId: nullableText("Catalog set ID", 300),
+    catalogCardId: nullableText("Catalog card ID", 500),
     printingVariantKey: requiredText("Printing variant key", 200)
       .transform(slugify)
       .pipe(
@@ -191,7 +197,25 @@ export const createCollectionEntrySchema = z
     imageUrl: trustedImageUrl,
     externalReferenceUrl: nullableUrl("External reference URL"),
   })
-  .strict();
+  .strict()
+  .superRefine((value, context) => {
+    const catalogParts = [
+      value.catalogProvider,
+      value.catalogSetId,
+      value.catalogCardId,
+    ];
+    if (
+      catalogParts.some((part) => part !== undefined && part !== null) &&
+      catalogParts.some((part) => part === undefined || part === null)
+    ) {
+      context.addIssue({
+        code: "custom",
+        path: ["catalogProvider"],
+        message:
+          "Catalog provider, set ID, and card ID must all be supplied together.",
+      });
+    }
+  });
 
 function positiveId(id: number): number {
   return z.number().int().positive().parse(id);

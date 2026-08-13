@@ -13,6 +13,7 @@ import {
 import {
   getTrustedCardImageOrigins,
   isOfficialPokemonCardImageUrl,
+  isTcgDexCardImageUrl,
   isTcgplayerCardImageUrl,
   isTrustedCardImageUrl,
 } from "@/lib/security/card-image-policy";
@@ -219,6 +220,7 @@ describe("remote card-image policy", () => {
     expect(getTrustedCardImageOrigins()).toEqual([
       "https://assets.pokemon.com",
       "https://tcgplayer-cdn.tcgplayer.com",
+      "https://assets.tcgdex.net",
     ]);
     expect(isTrustedCardImageUrl("https://images.example.com/card.png")).toBe(
       false,
@@ -248,6 +250,15 @@ describe("remote card-image policy", () => {
     expect(
       isTrustedCardImageUrl(
         "https://tcgplayer-cdn.tcgplayer.com/arbitrary/42386.jpg",
+      ),
+    ).toBe(false);
+
+    const japaneseImage = "https://assets.tcgdex.net/ja/SV/SV2a/025/high.webp";
+    expect(isTcgDexCardImageUrl(japaneseImage)).toBe(true);
+    expect(isTrustedCardImageUrl(japaneseImage)).toBe(true);
+    expect(
+      isTrustedCardImageUrl(
+        "https://assets.tcgdex.net/ja/SV/SV2a/025/arbitrary.svg",
       ),
     ).toBe(false);
   });

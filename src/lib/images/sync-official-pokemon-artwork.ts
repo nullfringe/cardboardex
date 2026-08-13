@@ -10,6 +10,10 @@ import {
 } from "./official-pokemon-artwork";
 import { storedMetadataImageProvider } from "./card-image-provider";
 import {
+  resolveTcgDexPokemonArtwork,
+  type TcgDexPokemonArtwork,
+} from "./tcgdex-pokemon-artwork";
+import {
   resolveVintagePokemonArtwork,
   type VintagePokemonArtwork,
 } from "./vintage-pokemon-artwork";
@@ -66,6 +70,10 @@ export async function syncPokemonArtwork(
       collectorNumber: cardPrintings.collectorNumber,
       printingVariantKey: cardPrintings.printingVariantKey,
       languageCode: cardPrintings.languageCode,
+      catalogProvider: cardPrintings.catalogProvider,
+      catalogCardId: cardPrintings.catalogExternalId,
+      catalogSetProvider: cardSets.catalogProvider,
+      catalogSetId: cardSets.catalogExternalId,
       imageProvider: cardPrintings.imageProvider,
       imageExternalId: cardPrintings.imageExternalId,
       imageUrl: cardPrintings.imageUrl,
@@ -112,6 +120,7 @@ export async function syncPokemonArtwork(
 
     let artwork:
       | VintagePokemonArtwork
+      | TcgDexPokemonArtwork
       | Awaited<ReturnType<typeof resolveOfficialPokemonArtwork>> = null;
     const providerErrors: unknown[] = [];
 
@@ -125,6 +134,30 @@ export async function syncPokemonArtwork(
             fetchImpl: options.fetchImpl,
             timeoutMs: options.timeoutMs,
           });
+        } catch (error) {
+          providerErrors.push(error);
+        }
+      }
+
+      if (!artwork) {
+        try {
+          artwork = await resolveTcgDexPokemonArtwork(
+            {
+              gameSlug: printing.gameSlug,
+              languageCode: printing.languageCode,
+              printingVariantKey: printing.printingVariantKey,
+              catalogProvider: printing.catalogProvider,
+              catalogSetId:
+                printing.catalogProvider === printing.catalogSetProvider
+                  ? printing.catalogSetId
+                  : null,
+              catalogCardId: printing.catalogCardId,
+            },
+            {
+              fetchImpl: options.fetchImpl,
+              timeoutMs: options.timeoutMs,
+            },
+          );
         } catch (error) {
           providerErrors.push(error);
         }

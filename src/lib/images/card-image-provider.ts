@@ -3,7 +3,7 @@ import { isTrustedCardImageUrl } from "@/lib/security/card-image-policy";
 export type CardImageIdentity = {
   gameSlug: string;
   setCode: string;
-  collectorNumber: string;
+  collectorNumber: string | null;
   imageProvider?: string | null;
   imageExternalId?: string | null;
   imageUrl?: string | null;

@@ -1,6 +1,10 @@
 import { parse } from "csv-parse/sync";
 
 import type { RawImportRow } from "@/db/schema";
+import {
+  collectorIdentifierKey,
+  collectorIdentifierSort,
+} from "@/lib/printing-identity";
 
 export const COLLECTION_CSV_HEADERS = [
   "Inventory ID",
@@ -38,7 +42,18 @@ export const COLLECTION_CSV_HEADERS = [
   "Finish / Variant",
 ] as const;
 
-export type CollectionCsvHeader = (typeof COLLECTION_CSV_HEADERS)[number];
+export const COLLECTION_CSV_OPTIONAL_HEADERS = [
+  "Language",
+  "English Name",
+  "Catalog Provider",
+  "Catalog Set ID",
+  "Catalog Card ID",
+  "Printing Variant",
+] as const;
+
+export type CollectionCsvHeader =
+  | (typeof COLLECTION_CSV_HEADERS)[number]
+  | (typeof COLLECTION_CSV_OPTIONAL_HEADERS)[number];
 
 export type ParsedAttack = {
   position: number;
@@ -63,11 +78,15 @@ export type ParsedCollectionRow = {
   identificationConfidence: string;
   notes: string | null;
   deckPool: string | null;
-  collectorNumber: string;
-  collectorNumberKey: string;
+  collectorNumber: string | null;
+  collectorNumberKey: string | null;
   collectorNumberSort: number;
   expansion: string;
   setCode: string;
+  canonicalName: string | null;
+  catalogProvider: string | null;
+  catalogSetId: string | null;
+  catalogCardId: string | null;
   externalReferenceUrl: string;
   evolvesFrom: string | null;
   abilityRule: string | null;
@@ -210,46 +229,6 @@ function parseInteger(
   return parsed;
 }
 
-function normalizeCollectorNumber(
-  collectorNumber: string,
-  context: ErrorContext,
-): { key: string; sort: number } {
-  const match = /^(\d+)\s*\/\s*(\d+)$/u.exec(collectorNumber);
-
-  if (!match) {
-    throw new CollectionCsvError(
-      `must use a numeric collector-number format such as 057/084; received "${collectorNumber}"`,
-      { ...context, field: "Collector No." },
-    );
-  }
-
-  const numeratorText = match[1];
-  const denominatorText = match[2];
-  if (numeratorText === undefined || denominatorText === undefined) {
-    throw new CollectionCsvError("could not be normalized", {
-      ...context,
-      field: "Collector No.",
-    });
-  }
-
-  const numerator = Number(numeratorText);
-  const denominator = Number(denominatorText);
-  if (!Number.isSafeInteger(numerator) || !Number.isSafeInteger(denominator)) {
-    throw new CollectionCsvError(
-      "contains a number outside JavaScript's safe integer range",
-      {
-        ...context,
-        field: "Collector No.",
-      },
-    );
-  }
-
-  return {
-    key: `${numerator}/${denominator}`,
-    sort: numerator,
-  };
-}
-
 function validateUrl(value: string, context: ErrorContext): string {
   let url: URL;
 
@@ -312,7 +291,9 @@ function parseFinishVariant(value: string | null): {
             ? "1999-2000-copyright"
             : /\bunlimited(?:\s+printing)?$/iu.test(tokenKey)
               ? "unlimited"
-              : null;
+              : /\bno[ -]rarity(?:\s+symbol)?$/iu.test(tokenKey)
+                ? "no-rarity"
+                : null;
 
     if (recognizedRarity && rarity === null) {
       rarity = recognizedRarity;
@@ -380,25 +361,32 @@ function parseAttack(
   };
 }
 
-function rawRowFromRecord(record: string[]): RawImportRow {
+function rawRowFromRecord(
+  record: string[],
+  headers: readonly CollectionCsvHeader[],
+): RawImportRow {
   const rawRow: RawImportRow = {};
 
-  COLLECTION_CSV_HEADERS.forEach((header, index) => {
+  headers.forEach((header, index) => {
     rawRow[header] = record[index] ?? "";
   });
 
   return rawRow;
 }
 
-function validateHeaders(receivedHeaders: string[]): void {
-  const maxLength = Math.max(
-    receivedHeaders.length,
-    COLLECTION_CSV_HEADERS.length,
-  );
+function validateHeaders(receivedHeaders: string[]): CollectionCsvHeader[] {
+  const allowedHeaders = [
+    ...COLLECTION_CSV_HEADERS,
+    ...COLLECTION_CSV_OPTIONAL_HEADERS,
+  ];
 
-  for (let index = 0; index < maxLength; index += 1) {
-    const expected = COLLECTION_CSV_HEADERS[index];
+  for (let index = 0; index < allowedHeaders.length; index += 1) {
+    const expected = allowedHeaders[index];
     const received = receivedHeaders[index];
+
+    if (received === undefined && index >= COLLECTION_CSV_HEADERS.length) {
+      break;
+    }
 
     if (expected !== received) {
       const expectedLabel =
@@ -410,20 +398,29 @@ function validateHeaders(receivedHeaders: string[]): void {
       );
     }
   }
+
+  if (receivedHeaders.length > allowedHeaders.length) {
+    throw new CollectionCsvError(
+      `header mismatch at column ${allowedHeaders.length + 1}: expected <no additional column>, received "${receivedHeaders[allowedHeaders.length]}"`,
+    );
+  }
+
+  return receivedHeaders as CollectionCsvHeader[];
 }
 
 function parseRecord(
   record: string[],
   csvRowNumber: number,
+  headers: readonly CollectionCsvHeader[],
 ): ParsedCollectionRow {
-  if (record.length !== COLLECTION_CSV_HEADERS.length) {
+  if (record.length !== headers.length) {
     throw new CollectionCsvError(
-      `expected ${COLLECTION_CSV_HEADERS.length} fields but received ${record.length}`,
+      `expected ${headers.length} fields but received ${record.length}`,
       { rowNumber: csvRowNumber },
     );
   }
 
-  const rawRow = rawRowFromRecord(record);
+  const rawRow = rawRowFromRecord(record, headers);
   const inventoryId = requiredCell(rawRow, "Inventory ID", {
     rowNumber: csvRowNumber,
   });
@@ -448,11 +445,7 @@ function parseRecord(
     context,
     { optional: true, minimum: 0 },
   );
-  const collectorNumber = requiredCell(rawRow, "Collector No.", context);
-  const normalizedCollector = normalizeCollectorNumber(
-    collectorNumber,
-    context,
-  );
+  const collectorNumber = normalizedCell(rawRow["Collector No."] ?? "");
   const externalReferenceUrl = validateUrl(
     requiredCell(rawRow, "Collector Source", context),
     context,
@@ -470,12 +463,41 @@ function parseRecord(
   const finish = parseFinishVariant(
     normalizedCell(rawRow["Finish / Variant"] ?? ""),
   );
+  const languageCode = (
+    normalizedCell(rawRow.Language ?? "") ?? "en"
+  ).toLocaleLowerCase("en-US");
+  if (!/^[a-z]{2}(?:-[a-z]{2})?$/u.test(languageCode)) {
+    throw new CollectionCsvError(
+      `must use a normalized language code such as en or ja; received "${languageCode}"`,
+      { ...context, field: "Language" },
+    );
+  }
+  const catalogProvider = normalizedCell(rawRow["Catalog Provider"] ?? "");
+  const catalogSetId = normalizedCell(rawRow["Catalog Set ID"] ?? "");
+  const catalogCardId = normalizedCell(rawRow["Catalog Card ID"] ?? "");
+  const catalogParts = [catalogProvider, catalogSetId, catalogCardId];
+  if (
+    catalogParts.some((value) => value !== null) &&
+    catalogParts.some((value) => value === null)
+  ) {
+    throw new CollectionCsvError(
+      "Catalog Provider, Catalog Set ID, and Catalog Card ID must all be supplied together",
+      { ...context, field: "Catalog Provider" },
+    );
+  }
+  const name = requiredCell(rawRow, "Name", context);
+  const setCode = requiredCell(rawRow, "Set ID", context);
+  const printingVariantKey =
+    normalizedCell(rawRow["Printing Variant"] ?? "")
+      ?.toLocaleLowerCase("en-US")
+      .replace(/[^a-z0-9]+/gu, "-")
+      .replace(/^-|-$/gu, "") || finish.printingVariantKey;
 
   return {
     csvRowNumber,
     inventoryId,
     cardKind: requiredCell(rawRow, "Card Kind", context),
-    name: requiredCell(rawRow, "Name", context),
+    name,
     pokemonType: normalizedCell(rawRow["TCG Type"] ?? ""),
     subtype: requiredCell(rawRow, "Stage / Trainer Subtype", context),
     hp,
@@ -493,10 +515,14 @@ function parseRecord(
     notes: normalizedCell(rawRow.Notes ?? ""),
     deckPool: normalizedCell(rawRow["Water/Psychic Deck Pool"] ?? ""),
     collectorNumber,
-    collectorNumberKey: normalizedCollector.key,
-    collectorNumberSort: normalizedCollector.sort,
+    collectorNumberKey: collectorIdentifierKey(collectorNumber),
+    collectorNumberSort: collectorIdentifierSort(collectorNumber),
     expansion: requiredCell(rawRow, "Expansion", context),
-    setCode: requiredCell(rawRow, "Set ID", context),
+    setCode,
+    canonicalName: normalizedCell(rawRow["English Name"] ?? ""),
+    catalogProvider,
+    catalogSetId,
+    catalogCardId,
     externalReferenceUrl,
     evolvesFrom: normalizedCell(rawRow["Evolves From"] ?? ""),
     abilityRule: normalizedCell(rawRow["Ability / Rule"] ?? ""),
@@ -511,8 +537,8 @@ function parseRecord(
     rarity: finish.rarity,
     finishVariant: finish.finishVariant,
     sealed: finish.sealed,
-    printingVariantKey: finish.printingVariantKey,
-    languageCode: "en",
+    printingVariantKey,
+    languageCode,
     rawRow,
   };
 }
@@ -543,11 +569,11 @@ export function parseCollectionCsv(
     throw new CollectionCsvError("CSV is empty and has no header row");
   }
 
-  validateHeaders(header);
+  const headers = validateHeaders(header);
 
   const parsedRows = records
     .slice(1)
-    .map((record, index) => parseRecord(record, index + 2));
+    .map((record, index) => parseRecord(record, index + 2, headers));
   const inventoryRows = new Map<string, number>();
 
   for (const row of parsedRows) {

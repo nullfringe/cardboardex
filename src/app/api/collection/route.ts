@@ -38,6 +38,7 @@ function queryFromUrl(request: Request): CollectionListQuery {
   const query: CollectionListQuery = {
     search: optionalParameter(searchParams, "search"),
     gameSlug: optionalParameter(searchParams, "game"),
+    languageCode: optionalParameter(searchParams, "language"),
     cardKind: optionalParameter(searchParams, "kind"),
     pokemonType: optionalParameter(searchParams, "type"),
     setCode: optionalParameter(searchParams, "set"),

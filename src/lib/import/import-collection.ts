@@ -15,6 +15,7 @@ import {
   type OwnedCardMetadata,
   type PrintingMetadata,
 } from "@/db/schema";
+import { stablePrintingIdentityKey } from "@/lib/printing-identity";
 
 import {
   CollectionCsvError,
@@ -71,6 +72,7 @@ function hasPokemonDetails(row: ParsedCollectionRow): boolean {
 function publishedFactsSignature(row: ParsedCollectionRow): string {
   return JSON.stringify({
     name: row.name,
+    canonicalName: row.canonicalName,
     cardKind: row.cardKind,
     subtype: row.subtype,
     pokemonType: row.pokemonType,
@@ -79,6 +81,9 @@ function publishedFactsSignature(row: ParsedCollectionRow): string {
     rarity: row.rarity,
     regulationMark: row.regulationMark,
     externalReferenceUrl: row.externalReferenceUrl,
+    catalogProvider: row.catalogProvider,
+    catalogSetId: row.catalogSetId,
+    catalogCardId: row.catalogCardId,
     evolvesFrom: row.evolvesFrom,
     abilityRule: row.abilityRule,
     attacks: row.attacks,
@@ -97,8 +102,9 @@ function validatePrintingConsistency(rows: ParsedCollectionRow[]): void {
 
   for (const row of rows) {
     const identity = [
-      row.setCode.toLocaleLowerCase("en-US"),
-      row.collectorNumberKey,
+      row.catalogProvider && row.catalogCardId
+        ? `${row.catalogProvider}:${row.catalogCardId}`
+        : `${row.setCode}:${row.collectorNumberKey ?? row.name}`,
       row.printingVariantKey,
       row.languageCode,
     ].join("\u001f");
@@ -163,10 +169,21 @@ export function importCollectionCsv(
     for (const row of rows) {
       const cardSet = tx
         .insert(cardSets)
-        .values({ gameId: game.id, code: row.setCode, name: row.expansion })
+        .values({
+          gameId: game.id,
+          code: row.setCode,
+          name: row.expansion,
+          languageCode: row.languageCode,
+          catalogProvider: row.catalogProvider,
+          catalogExternalId: row.catalogSetId,
+        })
         .onConflictDoUpdate({
-          target: [cardSets.gameId, cardSets.code],
-          set: { name: row.expansion },
+          target: [cardSets.gameId, cardSets.code, cardSets.languageCode],
+          set: {
+            name: row.expansion,
+            catalogProvider: sql`coalesce(excluded.catalog_provider, ${cardSets.catalogProvider})`,
+            catalogExternalId: sql`coalesce(excluded.catalog_external_id, ${cardSets.catalogExternalId})`,
+          },
         })
         .returning({ id: cardSets.id })
         .get();
@@ -176,11 +193,24 @@ export function importCollectionCsv(
         .values({
           setId: cardSet.id,
           name: row.name,
+          canonicalName: row.canonicalName,
           collectorNumber: row.collectorNumber,
           collectorNumberKey: row.collectorNumberKey,
           collectorNumberSort: row.collectorNumberSort,
+          stableIdentityKey: stablePrintingIdentityKey({
+            gameSlug,
+            setCode: row.setCode,
+            languageCode: row.languageCode,
+            name: row.name,
+            collectorNumber: row.collectorNumber,
+            printingVariantKey: row.printingVariantKey,
+            catalogProvider: row.catalogProvider,
+            catalogCardId: row.catalogCardId,
+          }),
           printingVariantKey: row.printingVariantKey,
           languageCode: row.languageCode,
+          catalogProvider: row.catalogProvider,
+          catalogExternalId: row.catalogCardId,
           cardKind: row.cardKind,
           subtype: row.subtype,
           rarity: row.rarity,
@@ -193,16 +223,15 @@ export function importCollectionCsv(
           metadata: printingMetadataFor(row),
         })
         .onConflictDoUpdate({
-          target: [
-            cardPrintings.setId,
-            cardPrintings.collectorNumberKey,
-            cardPrintings.printingVariantKey,
-            cardPrintings.languageCode,
-          ],
+          target: [cardPrintings.stableIdentityKey],
           set: {
             name: row.name,
+            canonicalName: row.canonicalName,
             collectorNumber: row.collectorNumber,
+            collectorNumberKey: row.collectorNumberKey,
             collectorNumberSort: row.collectorNumberSort,
+            catalogProvider: row.catalogProvider,
+            catalogExternalId: row.catalogCardId,
             cardKind: row.cardKind,
             subtype: row.subtype,
             rarity: row.rarity,

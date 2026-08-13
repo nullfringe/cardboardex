@@ -22,10 +22,14 @@ import {
   parseCollectionCsv,
 } from "@/lib/import";
 import { createProfileService } from "@/lib/services/profile-service";
+import { createCollectionService } from "@/lib/services/collection-service";
 
 const fixturePath = path.resolve(process.cwd(), "data/seed/collection.csv");
 const fixture = fs.readFileSync(fixturePath);
 const fixtureText = fixture.toString("utf8");
+const japaneseFixture = fs.readFileSync(
+  path.resolve(process.cwd(), "tests/fixtures/japanese-vintage.csv"),
+);
 
 function requiredResult<T>(value: T | undefined, description: string): T {
   if (value === undefined) {
@@ -116,6 +120,42 @@ describe("collection CSV parsing", () => {
     expect(firstEdition?.printingVariantKey).not.toBe(
       shadowless?.printingVariantKey,
     );
+  });
+
+  it("accepts optional international columns and absent collector identifiers", () => {
+    expect(parseCollectionCsv(japaneseFixture)).toMatchObject([
+      {
+        name: "ピカチュウ",
+        canonicalName: "Pikachu",
+        collectorNumber: null,
+        collectorNumberKey: null,
+        languageCode: "ja",
+        catalogProvider: "tcgdex",
+        catalogSetId: "PMCG1",
+        catalogCardId: "PMCG1-035",
+        printingVariantKey: "standard",
+      },
+      {
+        name: "ケーシィ",
+        canonicalName: "Abra",
+        collectorNumber: null,
+        languageCode: "ja",
+        printingVariantKey: "no-rarity",
+        finishVariant: "regular non-holo",
+      },
+    ]);
+  });
+
+  it("preserves non-numeric published identifiers without treating embedded digits as a sort number", () => {
+    const [abra] = parseCollectionCsv(
+      fixtureText.replace("43/102", "PROMO-123"),
+    ).filter((row) => row.name === "Abra");
+
+    expect(abra).toMatchObject({
+      collectorNumber: "PROMO-123",
+      collectorNumberKey: "promo-123",
+      collectorNumberSort: 2_147_483_647,
+    });
   });
 
   it("requires the exact ordered header schema", () => {
@@ -439,5 +479,75 @@ describe("collection import", () => {
         )
         .get(),
     ).toEqual(secondOwnedBefore);
+  });
+
+  it("imports Japanese vintage cards idempotently into an isolated profile", () => {
+    importCollectionCsv(connection.db, fixture, { profileId });
+    const secondProfile = createProfileService(connection.db).createProfile({
+      name: "International Collection",
+    });
+
+    const first = importCollectionCsv(connection.db, japaneseFixture, {
+      profileId: secondProfile.id,
+      sourceKey: "tests/fixtures/japanese-vintage.csv",
+    });
+    const ownedIds = connection.db
+      .select({ id: ownedCards.id })
+      .from(ownedCards)
+      .where(eq(ownedCards.profileId, secondProfile.id))
+      .orderBy(ownedCards.id)
+      .all();
+    const second = importCollectionCsv(connection.db, japaneseFixture, {
+      profileId: secondProfile.id,
+      sourceKey: "tests/fixtures/japanese-vintage.csv",
+    });
+
+    expect(first).toMatchObject({
+      importedEntries: 2,
+      importedQuantity: 2,
+      collectionEntries: 2,
+      physicalCards: 2,
+    });
+    expect(second).toMatchObject({ collectionEntries: 2, physicalCards: 2 });
+    expect(
+      connection.db
+        .select({ id: ownedCards.id })
+        .from(ownedCards)
+        .where(eq(ownedCards.profileId, secondProfile.id))
+        .orderBy(ownedCards.id)
+        .all(),
+    ).toEqual(ownedIds);
+    expect(
+      connection.db
+        .select({ count: sql<number>`count(*)` })
+        .from(ownedCards)
+        .where(eq(ownedCards.profileId, profileId))
+        .get(),
+    ).toEqual({ count: 69 });
+
+    const service = createCollectionService(connection.db);
+    expect(
+      service
+        .listCollection(secondProfile.slug, { search: "Pikachu" })
+        .map((card) => card.name),
+    ).toEqual(["ピカチュウ"]);
+    expect(
+      service
+        .listCollection(secondProfile.slug, { search: "ケーシィ" })
+        .map((card) => card.canonicalName),
+    ).toEqual(["Abra"]);
+    expect(
+      service.listCollection(secondProfile.slug, { languageCode: "ja" }),
+    ).toHaveLength(2);
+    expect(service.getCollectionFacets(secondProfile.slug).languages).toEqual([
+      { value: "ja", label: "Japanese", count: 2 },
+    ]);
+    expect(
+      connection.db
+        .select({ count: sql<number>`count(*)` })
+        .from(importRecords)
+        .where(eq(importRecords.profileId, secondProfile.id))
+        .get(),
+    ).toEqual({ count: 2 });
   });
 });

@@ -22,6 +22,13 @@
       "when": 1786586400000,
       "tag": "0002_collection_profiles",
       "breakpoints": true
+    },
+    {
+      "idx": 3,
+      "version": "6",
+      "when": 1786590000000,
+      "tag": "0003_international_vintage_identity",
+      "breakpoints": true
     }
   ]
 }

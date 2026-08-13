@@ -28,7 +28,7 @@ type CreateResult = {
 
 function blankToNull(value: FormDataEntryValue | null): string | null {
   if (typeof value !== "string") return null;
-  const normalized = value.trim();
+  const normalized = value.trim().normalize("NFC");
   return normalized || null;
 }
 
@@ -109,8 +109,12 @@ export function CreateCardForm({ profile }: { profile: Profile }) {
       setName: requiredString(formData, "setName"),
       setCode: requiredString(formData, "setCode"),
       name: requiredString(formData, "name"),
-      collectorNumber: requiredString(formData, "collectorNumber"),
+      canonicalName: blankToNull(formData.get("canonicalName")),
+      collectorNumber: blankToNull(formData.get("collectorNumber")),
       languageCode: requiredString(formData, "languageCode"),
+      catalogProvider: blankToNull(formData.get("catalogProvider")),
+      catalogSetId: blankToNull(formData.get("catalogSetId")),
+      catalogCardId: blankToNull(formData.get("catalogCardId")),
       printingVariantKey: requiredString(formData, "printingVariantKey"),
       cardKind: requiredString(formData, "cardKind"),
       subtype: blankToNull(formData.get("subtype")),
@@ -185,7 +189,7 @@ export function CreateCardForm({ profile }: { profile: Profile }) {
         <aside className="create-preview" aria-label="Card preview">
           <CardArtwork
             cardKind={cardKind || "Card"}
-            collectorNumber={collectorNumber || "—"}
+            collectorNumber={collectorNumber || null}
             imageUrl={null}
             name={previewName}
             pokemonType={pokemonType || null}
@@ -213,6 +217,14 @@ export function CreateCardForm({ profile }: { profile: Profile }) {
                   value={name}
                   onChange={(event) => setName(event.target.value)}
                 />
+              </label>
+              <label className="field field--wide">
+                <span className="field__label">English / canonical name</span>
+                <input name="canonicalName" placeholder="e.g. Pikachu" />
+                <small className="field__help">
+                  Optional searchable alias; the printed card name remains
+                  primary.
+                </small>
               </label>
               <label className="field">
                 <span className="field__label">Game / TCG *</span>
@@ -246,27 +258,37 @@ export function CreateCardForm({ profile }: { profile: Profile }) {
                 <input name="setCode" required placeholder="e.g. ME01" />
               </label>
               <label className="field">
-                <span className="field__label">Collector number *</span>
+                <span className="field__label">Collector identifier</span>
                 <input
                   name="collectorNumber"
-                  required
-                  placeholder="e.g. 043/102"
+                  placeholder="e.g. 043/102; leave blank when unnumbered"
                   value={collectorNumber}
                   onChange={(event) => setCollectorNumber(event.target.value)}
                 />
               </label>
               <label className="field">
-                <span className="field__label">Language code *</span>
-                <input defaultValue="en" name="languageCode" required />
+                <span className="field__label">Language *</span>
+                <select defaultValue="en" name="languageCode" required>
+                  <option value="en">English</option>
+                  <option value="ja">Japanese</option>
+                </select>
               </label>
               <label className="field">
                 <span className="field__label">Printing variant *</span>
                 <input
                   defaultValue="standard"
+                  list="printing-variants"
                   name="printingVariantKey"
                   placeholder="standard, unlimited, first-edition…"
                   required
                 />
+                <datalist id="printing-variants">
+                  <option value="standard" />
+                  <option value="unlimited" />
+                  <option value="first-edition" />
+                  <option value="shadowless" />
+                  <option value="no-rarity" />
+                </datalist>
               </label>
               <label className="field">
                 <span className="field__label">Stage / subtype</span>
@@ -516,10 +538,23 @@ export function CreateCardForm({ profile }: { profile: Profile }) {
                   type="url"
                 />
               </label>
+              <div className="form-grid form-grid--three">
+                <label className="field">
+                  <span className="field__label">Catalog provider</span>
+                  <input name="catalogProvider" placeholder="e.g. tcgdex" />
+                </label>
+                <label className="field">
+                  <span className="field__label">Catalog set ID</span>
+                  <input name="catalogSetId" placeholder="e.g. PMCG1" />
+                </label>
+                <label className="field">
+                  <span className="field__label">Catalog card ID</span>
+                  <input name="catalogCardId" placeholder="e.g. PMCG1-035" />
+                </label>
+              </div>
               <p className="field__help">
-                Remote artwork is disabled until a trusted image provider is
-                configured. Cardboardex will use its safe placeholder in the
-                meantime.
+                Catalog fields are optional, but when known all three must be
+                supplied. Missing provider coverage leaves the safe placeholder.
               </p>
             </div>
           </details>

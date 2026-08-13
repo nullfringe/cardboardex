@@ -6,7 +6,7 @@ import { useState } from "react";
 type CardArtworkProps = {
   name: string;
   cardKind: string;
-  collectorNumber: string;
+  collectorNumber: string | null;
   pokemonType?: string | null;
   imageUrl?: string | null;
   priority?: boolean;
@@ -79,7 +79,9 @@ export function CardArtwork({
             <span className="artwork__kind">{pokemonType ?? cardKind}</span>
             <span className="artwork__initials">{getInitials(name)}</span>
             <span className="artwork__name">{name}</span>
-            <span className="artwork__number">{collectorNumber}</span>
+            {collectorNumber ? (
+              <span className="artwork__number">{collectorNumber}</span>
+            ) : null}
           </div>
           <span className="artwork__unavailable">Artwork not linked</span>
         </div>

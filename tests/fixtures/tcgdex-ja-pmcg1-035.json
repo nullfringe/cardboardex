@@ -1,0 +1,27 @@
+{
+  "category": "Pokemon",
+  "id": "PMCG1-035",
+  "localId": "035",
+  "name": "ピカチュウ",
+  "rarity": "Common",
+  "set": {
+    "cardCount": { "official": 102, "total": 102 },
+    "id": "PMCG1",
+    "name": "拡張パック"
+  },
+  "variants_detailed": [
+    {
+      "type": "normal",
+      "size": "standard",
+      "variantId": "endfynwn4n10gzq"
+    },
+    {
+      "type": "normal",
+      "subtype": "no-rarity",
+      "size": "standard",
+      "variantId": "3a83wf50tygukdw4gyjguc5gr"
+    }
+  ],
+  "hp": 40,
+  "types": ["Lightning"]
+}

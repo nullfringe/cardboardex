@@ -20,6 +20,7 @@ import type {
   SortDirection,
 } from "@/lib/types/collection";
 import type { Profile } from "@/lib/types/profile";
+import { languageBadge } from "@/lib/languages";
 
 import { CardArtwork } from "./card-artwork";
 
@@ -31,6 +32,7 @@ type CollectionBrowserProps = {
 
 type BrowserFilters = {
   gameSlug: string;
+  languageCode: string;
   cardKind: string;
   pokemonType: string;
   setCode: string;
@@ -41,6 +43,7 @@ type BrowserFilters = {
 
 const emptyFilters: BrowserFilters = {
   gameSlug: "",
+  languageCode: "",
   cardKind: "",
   pokemonType: "",
   setCode: "",
@@ -74,12 +77,19 @@ function compareItems(
     case "set":
       return (
         collator.compare(left.setName, right.setName) ||
-        collator.compare(left.collectorNumber, right.collectorNumber)
+        compareNullable(
+          left.collectorNumber,
+          right.collectorNumber,
+          collator.compare,
+        )
       );
     case "collectorNumber":
       return (
-        collator.compare(left.collectorNumber, right.collectorNumber) ||
-        collator.compare(left.setName, right.setName)
+        compareNullable(
+          left.collectorNumber,
+          right.collectorNumber,
+          collator.compare,
+        ) || collator.compare(left.setName, right.setName)
       );
     case "pokemonType":
       return compareNullable(
@@ -104,7 +114,15 @@ function normalizeSearch(value: string): string {
 function matchesSearch(item: CollectionListItem, query: string): boolean {
   if (!query) return true;
   const haystack = normalizeSearch(
-    [item.name, item.collectorNumber, item.setName, item.setCode].join(" "),
+    [
+      item.name,
+      item.canonicalName,
+      item.collectorNumber,
+      item.setName,
+      item.setCode,
+    ]
+      .filter(Boolean)
+      .join(" "),
   );
   return haystack.includes(query);
 }
@@ -115,6 +133,7 @@ function matchesFilters(
 ): boolean {
   return (
     (!filters.gameSlug || item.gameSlug === filters.gameSlug) &&
+    (!filters.languageCode || item.languageCode === filters.languageCode) &&
     (!filters.cardKind || item.cardKind === filters.cardKind) &&
     (!filters.pokemonType || item.pokemonType === filters.pokemonType) &&
     (!filters.setCode || item.setCode === filters.setCode) &&
@@ -189,17 +208,29 @@ function CollectionCard({ item }: { item: CollectionListItem }) {
       </div>
       <div className="card-tile__body">
         <div className="card-tile__heading">
-          <h2>{item.name}</h2>
+          <div>
+            <h2>{item.name}</h2>
+            {item.canonicalName && item.canonicalName !== item.name ? (
+              <small>{item.canonicalName}</small>
+            ) : null}
+          </div>
           {item.hp !== null ? (
             <span className="card-tile__hp">{item.hp} HP</span>
           ) : null}
         </div>
         <p className="card-tile__set">
           <span>{item.setName}</span>
-          <span aria-hidden="true">·</span>
-          <span>{item.collectorNumber}</span>
+          {item.collectorNumber ? (
+            <>
+              <span aria-hidden="true">·</span>
+              <span>{item.collectorNumber}</span>
+            </>
+          ) : null}
         </p>
         <div className="card-tile__tags">
+          <span className="meta-pill" title={item.languageCode}>
+            {languageBadge(item.languageCode)}
+          </span>
           {item.pokemonType ? (
             <span
               className={`type-pill type-pill--${item.pokemonType.toLocaleLowerCase()}`}
@@ -359,6 +390,13 @@ export function CollectionBrowser({
                 value={filters.gameSlug}
                 options={facets.games}
                 onChange={(value) => setFilter("gameSlug", value)}
+              />
+              <FilterSelect
+                id="filter-language"
+                label="Language"
+                value={filters.languageCode}
+                options={facets.languages}
+                onChange={(value) => setFilter("languageCode", value)}
               />
               <FilterSelect
                 id="filter-kind"

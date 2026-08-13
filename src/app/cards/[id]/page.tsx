@@ -38,7 +38,9 @@ export async function generateMetadata({
   return card
     ? {
         title: card.name,
-        description: `${card.setName} ${card.collectorNumber}`,
+        description: [card.setName, card.collectorNumber]
+          .filter(Boolean)
+          .join(" "),
       }
     : { title: "Card not found" };
 }

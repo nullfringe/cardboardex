@@ -10,6 +10,7 @@ import {
 } from "lucide-react";
 import Link from "next/link";
 
+import { languageBadge, languageName } from "@/lib/languages";
 import type { CollectionDetail } from "@/lib/types/collection";
 import type { Profile } from "@/lib/types/profile";
 
@@ -93,7 +94,12 @@ export function CardDetailView({
                 {card.gameName} · {card.setName}
               </p>
               <div className="detail-title-line">
-                <h1>{card.name}</h1>
+                <div>
+                  <h1>{card.name}</h1>
+                  {card.canonicalName && card.canonicalName !== card.name ? (
+                    <p>{card.canonicalName}</p>
+                  ) : null}
+                </div>
                 {card.hp !== null ? (
                   <span className="detail-hp">
                     <HeartPulse size={17} aria-hidden="true" /> {card.hp} HP
@@ -101,6 +107,12 @@ export function CardDetailView({
                 ) : null}
               </div>
               <div className="detail-badges">
+                <span
+                  className="detail-badge"
+                  title={languageName(card.languageCode)}
+                >
+                  {languageBadge(card.languageCode)}
+                </span>
                 {card.pokemonType ? (
                   <span
                     className={`type-pill type-pill--${card.pokemonType.toLocaleLowerCase()}`}
@@ -139,8 +151,28 @@ export function CardDetailView({
               <dl className="fact-grid">
                 <Fact label="Expansion" value={card.setName} />
                 <Fact label="Collector no." value={card.collectorNumber} />
+                <Fact
+                  label="Language"
+                  value={languageName(card.languageCode)}
+                />
+                <Fact
+                  label="Printing variant"
+                  value={card.printingVariantKey}
+                />
                 <Fact label="Regulation mark" value={card.regulationMark} />
                 <Fact label="Evolves from" value={card.evolvesFrom} />
+                <Fact
+                  label="Catalog identity"
+                  value={
+                    card.catalogProvider && card.catalogExternalId
+                      ? `${card.catalogProvider}: ${card.catalogExternalId}`
+                      : null
+                  }
+                />
+                <Fact
+                  label="Artwork provider"
+                  value={card.imageUrl ? card.imageProvider : null}
+                />
               </dl>
             </section>
 

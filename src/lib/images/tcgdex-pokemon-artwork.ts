@@ -1,0 +1,278 @@
+import { isTcgDexCardImageUrl } from "@/lib/security/card-image-policy";
+
+import type { ArtworkFetch } from "./official-pokemon-artwork";
+
+export const TCGDEX_POKEMON_ARTWORK_PROVIDER = "tcgdex";
+export const TCGDEX_API_ORIGIN = "https://api.tcgdex.net";
+
+const DEFAULT_TIMEOUT_MS = 10_000;
+const MAX_CARD_RESPONSE_BYTES = 500_000;
+const REDIRECT_STATUSES = new Set([301, 302, 303, 307, 308]);
+
+export type TcgDexPokemonArtworkIdentity = {
+  gameSlug: string;
+  languageCode: string;
+  printingVariantKey: string;
+  catalogProvider: string | null;
+  catalogSetId: string | null;
+  catalogCardId: string | null;
+};
+
+export type TcgDexPokemonArtwork = {
+  url: string;
+  provider: typeof TCGDEX_POKEMON_ARTWORK_PROVIDER;
+  externalId: string;
+};
+
+type TcgDexVariant = {
+  subtype?: string;
+  stamps: string[];
+  size?: string;
+  variantId: string;
+};
+
+type TcgDexCard = {
+  id: string;
+  localId: string;
+  image: string | null;
+  setId: string;
+  variants: TcgDexVariant[];
+};
+
+export class TcgDexPokemonArtworkError extends Error {
+  constructor(message: string) {
+    super(message);
+    this.name = "TcgDexPokemonArtworkError";
+  }
+}
+
+function normalized(value: string): string {
+  return value.normalize("NFKC").trim().toLocaleLowerCase("en-US");
+}
+
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return typeof value === "object" && value !== null && !Array.isArray(value);
+}
+
+function requiredString(value: unknown, field: string): string {
+  if (typeof value !== "string" || !value) {
+    throw new TcgDexPokemonArtworkError(
+      `TCGdex returned invalid ${field} metadata.`,
+    );
+  }
+  return value;
+}
+
+function requiredIdentifier(value: unknown, field: string): string {
+  return typeof value === "string" || typeof value === "number"
+    ? requiredString(String(value), field)
+    : requiredString(value, field);
+}
+
+function parseVariant(value: unknown): TcgDexVariant | null {
+  if (!isRecord(value)) return null;
+  const stampsValue = value.stamp ?? value.stamps;
+  const stamps = Array.isArray(stampsValue)
+    ? stampsValue.filter((stamp): stamp is string => typeof stamp === "string")
+    : [];
+
+  try {
+    return {
+      ...(typeof value.subtype === "string" ? { subtype: value.subtype } : {}),
+      ...(typeof value.size === "string" ? { size: value.size } : {}),
+      stamps,
+      variantId: requiredString(value.variantId, "variant ID"),
+    };
+  } catch {
+    return null;
+  }
+}
+
+function parseCard(value: unknown): TcgDexCard {
+  if (!isRecord(value) || !isRecord(value.set)) {
+    throw new TcgDexPokemonArtworkError(
+      "TCGdex returned an invalid card record.",
+    );
+  }
+
+  return {
+    id: requiredString(value.id, "card ID"),
+    localId: requiredIdentifier(value.localId, "local ID"),
+    image: typeof value.image === "string" ? value.image : null,
+    setId: requiredString(value.set.id, "set ID"),
+    variants: Array.isArray(value.variants_detailed)
+      ? value.variants_detailed
+          .map(parseVariant)
+          .filter((variant): variant is TcgDexVariant => variant !== null)
+      : [],
+  };
+}
+
+function exactVariant(
+  variants: TcgDexVariant[],
+  printingVariantKey: string,
+): TcgDexVariant | null {
+  const standardSize = variants.filter(
+    (variant) => variant.size === undefined || variant.size === "standard",
+  );
+  if (standardSize.length !== 1) return null;
+
+  const variant = standardSize[0];
+  if (!variant) return null;
+  const key = normalized(printingVariantKey);
+  if (key === "standard") {
+    return variant.subtype === undefined && variant.stamps.length === 0
+      ? variant
+      : null;
+  }
+
+  return normalized(variant.subtype ?? "") === key ||
+    variant.stamps.some((stamp) => normalized(stamp) === key)
+    ? variant
+    : null;
+}
+
+function cardApiUrl(languageCode: string, cardId: string): string {
+  return `${TCGDEX_API_ORIGIN}/v2/${languageCode}/cards/${cardId}`;
+}
+
+export function isTcgDexCardApiUrl(value: string): boolean {
+  try {
+    const url = new URL(value);
+    return (
+      url.origin === TCGDEX_API_ORIGIN &&
+      !url.username &&
+      !url.password &&
+      !url.search &&
+      !url.hash &&
+      /^\/v2\/[a-z]{2}(?:-[a-z]{2})?\/cards\/[a-z0-9.-]+$/iu.test(url.pathname)
+    );
+  } catch {
+    return false;
+  }
+}
+
+function exactImageUrl(
+  imageBase: string,
+  languageCode: string,
+  setId: string,
+  localId: string,
+): string | null {
+  const url = `${imageBase.replace(/\/$/u, "")}/high.webp`;
+  if (!isTcgDexCardImageUrl(url)) return null;
+
+  const parts = new URL(url).pathname.split("/").filter(Boolean);
+  return normalized(parts[0] ?? "") === normalized(languageCode) &&
+    normalized(parts[2] ?? "") === normalized(setId) &&
+    normalized(parts[3] ?? "") === normalized(localId)
+    ? url
+    : null;
+}
+
+async function fetchCard(
+  url: string,
+  fetchImpl: ArtworkFetch,
+  timeoutMs: number,
+): Promise<TcgDexCard | null> {
+  if (!isTcgDexCardApiUrl(url)) {
+    throw new TcgDexPokemonArtworkError(
+      "TCGdex artwork lookup requires a constrained card URL.",
+    );
+  }
+
+  const response = await fetchImpl(url, {
+    headers: {
+      accept: "application/json",
+      "user-agent":
+        "Cardboardex/0.1 (+https://github.com/nullfringe/cardboardex)",
+    },
+    redirect: "manual",
+    signal: AbortSignal.timeout(timeoutMs),
+  });
+
+  if (response.status === 404) return null;
+  if (REDIRECT_STATUSES.has(response.status)) {
+    throw new TcgDexPokemonArtworkError(
+      "TCGdex metadata unexpectedly redirected.",
+    );
+  }
+  if (!response.ok) {
+    throw new TcgDexPokemonArtworkError(
+      `TCGdex returned HTTP ${response.status}.`,
+    );
+  }
+  if (
+    !response.headers
+      .get("content-type")
+      ?.toLocaleLowerCase("en-US")
+      .startsWith("application/json")
+  ) {
+    throw new TcgDexPokemonArtworkError("TCGdex did not return JSON.");
+  }
+
+  const declaredLength = Number(response.headers.get("content-length"));
+  if (
+    Number.isFinite(declaredLength) &&
+    declaredLength > MAX_CARD_RESPONSE_BYTES
+  ) {
+    throw new TcgDexPokemonArtworkError(
+      "TCGdex card metadata was unexpectedly large.",
+    );
+  }
+
+  const text = await response.text();
+  if (new TextEncoder().encode(text).byteLength > MAX_CARD_RESPONSE_BYTES) {
+    throw new TcgDexPokemonArtworkError(
+      "TCGdex card metadata was unexpectedly large.",
+    );
+  }
+
+  try {
+    return parseCard(JSON.parse(text));
+  } catch (error) {
+    if (error instanceof TcgDexPokemonArtworkError) throw error;
+    throw new TcgDexPokemonArtworkError("TCGdex returned malformed JSON.");
+  }
+}
+
+export async function resolveTcgDexPokemonArtwork(
+  identity: TcgDexPokemonArtworkIdentity,
+  {
+    fetchImpl = (input, init) => fetch(input, init),
+    timeoutMs = DEFAULT_TIMEOUT_MS,
+  }: { fetchImpl?: ArtworkFetch; timeoutMs?: number } = {},
+): Promise<TcgDexPokemonArtwork | null> {
+  if (
+    normalized(identity.gameSlug) !== "pokemon-tcg" ||
+    normalized(identity.catalogProvider ?? "") !== "tcgdex" ||
+    !identity.catalogSetId ||
+    !identity.catalogCardId
+  ) {
+    return null;
+  }
+
+  const languageCode = normalized(identity.languageCode);
+  const card = await fetchCard(
+    cardApiUrl(languageCode, identity.catalogCardId),
+    fetchImpl,
+    timeoutMs,
+  );
+  if (
+    !card ||
+    normalized(card.id) !== normalized(identity.catalogCardId) ||
+    normalized(card.setId) !== normalized(identity.catalogSetId)
+  ) {
+    return null;
+  }
+
+  const variant = exactVariant(card.variants, identity.printingVariantKey);
+  if (!variant || !card.image) return null;
+  const url = exactImageUrl(card.image, languageCode, card.setId, card.localId);
+  if (!url) return null;
+
+  return {
+    url,
+    provider: TCGDEX_POKEMON_ARTWORK_PROVIDER,
+    externalId: `${languageCode}/${card.id}/${variant.variantId}`,
+  };
+}

@@ -1,0 +1,22 @@
+{
+  "category": "Pokemon",
+  "id": "SV2a-025",
+  "image": "https://assets.tcgdex.net/ja/SV/SV2a/025",
+  "localId": "025",
+  "name": "ピカチュウ",
+  "rarity": "Common",
+  "set": {
+    "cardCount": { "official": 165, "total": 210 },
+    "id": "SV2a",
+    "name": "ポケモンカード151"
+  },
+  "variants_detailed": [
+    {
+      "type": "normal",
+      "size": "standard",
+      "variantId": "generated"
+    }
+  ],
+  "hp": 60,
+  "types": ["Lightning"]
+}

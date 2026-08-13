@@ -56,7 +56,7 @@ export type VintagePokemonArtworkIdentity = {
   gameSlug: string;
   setCode: string;
   setName: string;
-  collectorNumber: string;
+  collectorNumber: string | null;
   printingVariantKey: string;
   languageCode: string;
 };
@@ -115,10 +115,11 @@ function vintageSetIdentity(
   );
 }
 
-function collectorIdentity(value: string): {
+function collectorIdentity(value: string | null): {
   number: string;
   printedTotal: number;
 } | null {
+  if (value === null) return null;
   const match = /^(\d+)\s*\/\s*(\d+)$/u.exec(value.normalize("NFKC").trim());
   const number = Number(match?.[1]);
   const printedTotal = Number(match?.[2]);

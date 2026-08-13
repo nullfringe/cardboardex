@@ -19,6 +19,7 @@ import { syncPokemonArtwork } from "@/lib/images/sync-official-pokemon-artwork";
 import { VINTAGE_POKEMON_ARTWORK_PROVIDER } from "@/lib/images/vintage-pokemon-artwork";
 import { importCollectionCsv } from "@/lib/import";
 import { createCollectionService } from "@/lib/services/collection-service";
+import { createProfileService } from "@/lib/services/profile-service";
 
 const seedPath = path.resolve(process.cwd(), "data/seed/collection.csv");
 const fixturePath = path.resolve(
@@ -27,6 +28,10 @@ const fixturePath = path.resolve(
 );
 const vintageAbraFixture = fs.readFileSync(
   path.resolve(process.cwd(), "tests/fixtures/tcgdex-base1-43.json"),
+  "utf8",
+);
+const japanesePikachuFixture = fs.readFileSync(
+  path.resolve(process.cwd(), "tests/fixtures/tcgdex-ja-sv2a-025.json"),
   "utf8",
 );
 const maschiffSource =
@@ -307,5 +312,107 @@ describe("Pokémon artwork sync", () => {
         .where(eq(cardPrintings.name, "Gligar"))
         .get()?.imageUrl,
     ).toMatch(/^https:\/\/assets\.pokemon\.com\//u);
+  });
+
+  it("resolves a Japanese printing independently regardless of owning profile", async () => {
+    const secondProfile = createProfileService(connection.db).createProfile({
+      name: "International Collection",
+    });
+    createCollectionService(connection.db).createCollectionEntry(
+      secondProfile.slug,
+      {
+        gameSlug: "pokemon-tcg",
+        gameName: "Pokémon Trading Card Game",
+        setCode: "JP-SV2A",
+        setName: "ポケモンカード151",
+        name: "ピカチュウ",
+        canonicalName: "Pikachu",
+        collectorNumber: "025/165",
+        languageCode: "ja",
+        printingVariantKey: "standard",
+        catalogProvider: "tcgdex",
+        catalogSetId: "SV2a",
+        catalogCardId: "SV2a-025",
+        cardKind: "Pokémon",
+        subtype: "Basic",
+        quantity: 1,
+      },
+    );
+    const englishFetch = fetchWithVintageFallback();
+    const fetchImpl = vi.fn<ArtworkFetch>(async (input, init) => {
+      if (input === "https://api.tcgdex.net/v2/ja/cards/SV2a-025") {
+        return new Response(japanesePikachuFixture, {
+          status: 200,
+          headers: { "content-type": "application/json" },
+        });
+      }
+      return englishFetch(input, init);
+    });
+
+    const result = await syncPokemonArtwork(connection.db, {
+      fetchImpl,
+      requestDelayMs: 0,
+    });
+
+    expect(result).toMatchObject({
+      totalPrintings: 70,
+      resolved: 70,
+      unresolved: 0,
+      failed: 0,
+    });
+    expect(
+      connection.db
+        .select({
+          imageProvider: cardPrintings.imageProvider,
+          imageUrl: cardPrintings.imageUrl,
+        })
+        .from(cardPrintings)
+        .where(eq(cardPrintings.languageCode, "ja"))
+        .get(),
+    ).toEqual({
+      imageProvider: "tcgdex",
+      imageUrl: "https://assets.tcgdex.net/ja/SV/SV2a/025/high.webp",
+    });
+  });
+
+  it("keeps an unnumbered Japanese card without provider coverage unresolved", async () => {
+    const secondProfile = createProfileService(connection.db).createProfile({
+      name: "International Collection",
+    });
+    createCollectionService(connection.db).createCollectionEntry(
+      secondProfile.slug,
+      {
+        gameSlug: "pokemon-tcg",
+        gameName: "Pokémon Trading Card Game",
+        setCode: "JP-UNKNOWN",
+        setName: "未確認のヴィンテージセット",
+        name: "未知のカード",
+        canonicalName: "Unknown card",
+        collectorNumber: null,
+        languageCode: "ja",
+        printingVariantKey: "standard",
+        cardKind: "Pokémon",
+        subtype: "Basic",
+        quantity: 1,
+      },
+    );
+
+    const result = await syncPokemonArtwork(connection.db, {
+      fetchImpl: fetchWithVintageFallback(),
+      requestDelayMs: 0,
+    });
+
+    expect(result).toMatchObject({
+      totalPrintings: 70,
+      resolved: 69,
+      unresolved: 1,
+      failed: 0,
+    });
+    expect(result.issues).toContainEqual(
+      expect.objectContaining({
+        name: "未知のカード",
+        outcome: "unresolved",
+      }),
+    );
   });
 });
