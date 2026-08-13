@@ -30,6 +30,8 @@ const fixtureText = fixture.toString("utf8");
 const japaneseFixture = fs.readFileSync(
   path.resolve(process.cwd(), "tests/fixtures/japanese-vintage.csv"),
 );
+const abraCollectorSource =
+  "https://bulbapedia.bulbagarden.net/wiki/Abra_(Base_Set_43)";
 
 function requiredResult<T>(value: T | undefined, description: string): T {
   if (value === undefined) {
@@ -156,6 +158,22 @@ describe("collection CSV parsing", () => {
       collectorNumberKey: "promo-123",
       collectorNumberSort: 2_147_483_647,
     });
+  });
+
+  it("accepts blank Collector Source but rejects malformed nonblank values", () => {
+    const blankSource = fixtureText.replace(abraCollectorSource, "");
+
+    expect(
+      parseCollectionCsv(blankSource).find((row) => row.name === "Abra"),
+    ).toMatchObject({ externalReferenceUrl: null });
+    expect(
+      parseCollectionCsv(fixtureText).find((row) => row.name === "Abra"),
+    ).toMatchObject({ externalReferenceUrl: abraCollectorSource });
+    expect(() =>
+      parseCollectionCsv(fixtureText.replace(abraCollectorSource, "not a URL")),
+    ).toThrowError(
+      /CSV row 70, Inventory ID 69, field "Collector Source": must be a valid URL; received "not a URL"/u,
+    );
   });
 
   it("requires the exact ordered header schema", () => {
@@ -312,6 +330,35 @@ describe("collection import", () => {
     expect(bulbasaur.rawRow["Finish / Variant"]).toBe(
       "Illustration Rare; Mega Evolution stamped promo; factory sealed",
     );
+
+    expect(
+      connection.db
+        .select({ externalReferenceUrl: cardPrintings.externalReferenceUrl })
+        .from(cardPrintings)
+        .where(eq(cardPrintings.name, "Abra"))
+        .get(),
+    ).toEqual({ externalReferenceUrl: abraCollectorSource });
+  });
+
+  it("imports cards with blank Collector Source as valid local printings", () => {
+    const blankSource = fixtureText.replace(abraCollectorSource, "");
+
+    const result = importCollectionCsv(connection.db, blankSource, {
+      profileId,
+    });
+
+    expect(result).toMatchObject({ collectionEntries: 69, physicalCards: 72 });
+    expect(
+      connection.db
+        .select({
+          externalReferenceUrl: cardPrintings.externalReferenceUrl,
+          ownedCardId: ownedCards.id,
+        })
+        .from(cardPrintings)
+        .innerJoin(ownedCards, eq(ownedCards.printingId, cardPrintings.id))
+        .where(eq(cardPrintings.name, "Abra"))
+        .get(),
+    ).toEqual({ externalReferenceUrl: null, ownedCardId: expect.any(Number) });
   });
 
   it("keeps vintage blanks, zero retreat cost, and tentative condition as notes", () => {

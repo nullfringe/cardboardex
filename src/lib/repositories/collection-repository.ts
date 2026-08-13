@@ -43,6 +43,21 @@ const defaultSort: CollectionSort = {
   direction: "asc",
 };
 
+export class CardSetCatalogConflictError extends Error {
+  constructor(
+    setName: string,
+    existingProvider: string,
+    existingSetId: string,
+    suppliedProvider: string,
+    suppliedSetId: string,
+  ) {
+    super(
+      `Set ${setName} is already linked to ${existingProvider} set ${existingSetId}; supplied ${suppliedProvider} set ${suppliedSetId} conflicts.`,
+    );
+    this.name = "CardSetCatalogConflictError";
+  }
+}
+
 const listSelection = {
   ownedCardId: ownedCards.id,
   printingId: cardPrintings.id,
@@ -528,7 +543,12 @@ export class CollectionRepository {
       }
 
       let cardSet = tx
-        .select({ id: cardSets.id, name: cardSets.name })
+        .select({
+          id: cardSets.id,
+          name: cardSets.name,
+          catalogProvider: cardSets.catalogProvider,
+          catalogExternalId: cardSets.catalogExternalId,
+        })
         .from(cardSets)
         .where(
           and(
@@ -550,16 +570,37 @@ export class CollectionRepository {
             catalogProvider: input.catalogProvider,
             catalogExternalId: input.catalogSetId,
           })
-          .returning({ id: cardSets.id, name: cardSets.name })
+          .returning({
+            id: cardSets.id,
+            name: cardSets.name,
+            catalogProvider: cardSets.catalogProvider,
+            catalogExternalId: cardSets.catalogExternalId,
+          })
           .get();
       } else if (input.catalogProvider && input.catalogSetId) {
-        tx.update(cardSets)
-          .set({
-            catalogProvider: input.catalogProvider,
-            catalogExternalId: input.catalogSetId,
-          })
-          .where(eq(cardSets.id, cardSet.id))
-          .run();
+        if (
+          cardSet.catalogProvider === null &&
+          cardSet.catalogExternalId === null
+        ) {
+          tx.update(cardSets)
+            .set({
+              catalogProvider: input.catalogProvider,
+              catalogExternalId: input.catalogSetId,
+            })
+            .where(eq(cardSets.id, cardSet.id))
+            .run();
+        } else if (
+          cardSet.catalogProvider !== input.catalogProvider ||
+          cardSet.catalogExternalId !== input.catalogSetId
+        ) {
+          throw new CardSetCatalogConflictError(
+            cardSet.name,
+            cardSet.catalogProvider ?? "unknown provider",
+            cardSet.catalogExternalId ?? "unknown set",
+            input.catalogProvider,
+            input.catalogSetId,
+          );
+        }
       }
 
       const variantKey = input.printingVariantKey ?? "standard";

@@ -1,3 +1,4 @@
+import { eq } from "drizzle-orm";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 import { createDatabaseConnection, type DatabaseConnection } from "@/db/client";
@@ -438,6 +439,119 @@ describe("collection service", () => {
     expect(
       service.listCollection(profileSlug, { search: "ケーシィ" }),
     ).toHaveLength(2);
+  });
+
+  it("preserves shared CardSet catalog identity during manual creation", () => {
+    const existing = service.createCollectionEntry(
+      profileSlug,
+      cardInput({
+        setCode: "JP-PMCG1",
+        setName: "拡張パック",
+        name: "既存のカード",
+        collectorNumber: null,
+        languageCode: "ja",
+        imageProvider: "fixture",
+        imageExternalId: "existing-card",
+        imageUrl: "https://images.example.com/existing-card.png",
+      }),
+    );
+
+    const populated = service.createCollectionEntry(
+      profileSlug,
+      cardInput({
+        setCode: "JP-PMCG1",
+        setName: "拡張パック",
+        name: "ピカチュウ",
+        collectorNumber: null,
+        languageCode: "ja",
+        catalogProvider: "tcgdex",
+        catalogSetId: "PMCG1",
+        catalogCardId: "PMCG1-035",
+      }),
+    );
+    const matching = service.createCollectionEntry(
+      profileSlug,
+      cardInput({
+        setCode: "JP-PMCG1",
+        setName: "拡張パック",
+        name: "ケーシィ",
+        collectorNumber: null,
+        languageCode: "ja",
+        catalogProvider: "tcgdex",
+        catalogSetId: "PMCG1",
+        catalogCardId: "PMCG1-043",
+        printingVariantKey: "no-rarity",
+      }),
+    );
+
+    expect(populated.catalogProvider).toBe("tcgdex");
+    expect(matching.catalogExternalId).toBe("PMCG1-043");
+    expect(
+      connection.db
+        .select({
+          catalogProvider: cardSets.catalogProvider,
+          catalogExternalId: cardSets.catalogExternalId,
+        })
+        .from(cardSets)
+        .where(eq(cardSets.code, "JP-PMCG1"))
+        .get(),
+    ).toEqual({ catalogProvider: "tcgdex", catalogExternalId: "PMCG1" });
+
+    const countsBeforeConflict = {
+      printings: connection.db.select().from(cardPrintings).all().length,
+      owned: connection.db.select().from(ownedCards).all().length,
+    };
+
+    expect(() =>
+      service.createCollectionEntry(
+        profileSlug,
+        cardInput({
+          setCode: "JP-PMCG1",
+          setName: "拡張パック",
+          name: "誤ったセット ID",
+          collectorNumber: null,
+          languageCode: "ja",
+          catalogProvider: "tcgdex",
+          catalogSetId: "PMCGI",
+          catalogCardId: "PMCGI-001",
+        }),
+      ),
+    ).toThrow(/already linked to tcgdex set PMCG1.*PMCGI conflicts/u);
+    expect(() =>
+      service.createCollectionEntry(
+        profileSlug,
+        cardInput({
+          setCode: "JP-PMCG1",
+          setName: "拡張パック",
+          name: "Wrong provider",
+          collectorNumber: null,
+          languageCode: "ja",
+          catalogProvider: "another-provider",
+          catalogSetId: "PMCG1",
+          catalogCardId: "PMCG1-001",
+        }),
+      ),
+    ).toThrow(/already linked to tcgdex set PMCG1.*another-provider/u);
+
+    expect(
+      connection.db
+        .select({
+          catalogProvider: cardSets.catalogProvider,
+          catalogExternalId: cardSets.catalogExternalId,
+        })
+        .from(cardSets)
+        .where(eq(cardSets.code, "JP-PMCG1"))
+        .get(),
+    ).toEqual({ catalogProvider: "tcgdex", catalogExternalId: "PMCG1" });
+    expect({
+      printings: connection.db.select().from(cardPrintings).all().length,
+      owned: connection.db.select().from(ownedCards).all().length,
+    }).toEqual(countsBeforeConflict);
+    expect(
+      service.getCollectionEntry(profileSlug, existing.ownedCardId),
+    ).toMatchObject({
+      imageUrl: "https://images.example.com/existing-card.png",
+    });
   });
 
   it("isolates ownership while sharing one canonical printing between profiles", () => {

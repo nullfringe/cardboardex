@@ -87,7 +87,7 @@ export type ParsedCollectionRow = {
   catalogProvider: string | null;
   catalogSetId: string | null;
   catalogCardId: string | null;
-  externalReferenceUrl: string;
+  externalReferenceUrl: string | null;
   evolvesFrom: string | null;
   abilityRule: string | null;
   attacks: ParsedAttack[];
@@ -229,7 +229,12 @@ function parseInteger(
   return parsed;
 }
 
-function validateUrl(value: string, context: ErrorContext): string {
+function validateUrl(
+  value: string | null,
+  context: ErrorContext,
+): string | null {
+  if (value === null) return null;
+
   let url: URL;
 
   try {
@@ -252,7 +257,7 @@ function validateUrl(value: string, context: ErrorContext): string {
     });
   }
 
-  return value;
+  return url.toString();
 }
 
 function parseFinishVariant(value: string | null): {
@@ -447,7 +452,7 @@ function parseRecord(
   );
   const collectorNumber = normalizedCell(rawRow["Collector No."] ?? "");
   const externalReferenceUrl = validateUrl(
-    requiredCell(rawRow, "Collector Source", context),
+    normalizedCell(rawRow["Collector Source"] ?? ""),
     context,
   );
   const attack1 = parseAttack(rawRow, 1, context);
