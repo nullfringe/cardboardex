@@ -17,6 +17,9 @@ export type CollectionFilters = {
   setCode?: string;
   subtype?: string;
   rarity?: string;
+  printingFinish?: string;
+  cardBackDesign?: string;
+  physicalForm?: string;
   finishVariant?: string;
   sealed?: boolean;
 };
@@ -42,6 +45,10 @@ export type CollectionListItem = {
   subtype: string | null;
   rarity: string | null;
   regulationMark: string | null;
+  printingVariantKey: string;
+  printingFinish: string | null;
+  cardBackDesign: string | null;
+  physicalForm: string | null;
   pokemonType: string | null;
   hp: number | null;
   quantity: number;
@@ -51,6 +58,7 @@ export type CollectionListItem = {
   imageProvider: string | null;
   imageExternalId: string | null;
   imageUrl: string | null;
+  printedIdentifierText: string | null;
 };
 
 export type CollectionAttack = {
@@ -62,8 +70,23 @@ export type CollectionAttack = {
   effect: string | null;
 };
 
+export type CollectionPrintedIdentifier = {
+  id: number;
+  role: string;
+  value: string;
+  label: string | null;
+};
+
+export type CollectionPrintingGroup = {
+  id: number;
+  groupKey: string;
+  groupType: string;
+  name: string | null;
+  expectedComponentCount: number | null;
+  componentKey: string;
+};
+
 export type CollectionDetail = CollectionListItem & {
-  printingVariantKey: string;
   specialRuleBox: string | null;
   abilityRule: string | null;
   rulesText: string | null;
@@ -75,8 +98,14 @@ export type CollectionDetail = CollectionListItem & {
   resistance: string | null;
   retreatCost: number | null;
   attacks: CollectionAttack[];
+  printedIdentifiers: CollectionPrintedIdentifier[];
+  printingGroups: CollectionPrintingGroup[];
   notes: string | null;
   deckPool: string | null;
+  photoBatch: string | null;
+  gridPosition: string | null;
+  frontPhoto: string | null;
+  backPhoto: string | null;
   stableIdentityKey: string;
   catalogProvider: string | null;
   catalogExternalId: string | null;
@@ -100,6 +129,9 @@ export type CollectionFacets = {
   finishVariants: CollectionFacetOption[];
   rarities: CollectionFacetOption[];
   languages: CollectionFacetOption[];
+  printingFinishes: CollectionFacetOption[];
+  cardBackDesigns: CollectionFacetOption[];
+  physicalForms: CollectionFacetOption[];
 };
 
 export type UpdateOwnedCardInput = {
@@ -117,6 +149,20 @@ export type CreateAttackInput = {
   effect?: string | null;
 };
 
+export type CreatePrintedIdentifierInput = {
+  role: string;
+  value: string;
+  label?: string | null;
+};
+
+export type CreatePrintingGroupInput = {
+  groupKey: string;
+  groupType: string;
+  name?: string | null;
+  expectedComponentCount?: number | null;
+  componentKey: string;
+};
+
 export type CreateCollectionEntryInput = {
   gameSlug: string;
   gameName: string;
@@ -130,6 +176,11 @@ export type CreateCollectionEntryInput = {
   catalogProvider?: string | null;
   catalogSetId?: string | null;
   catalogCardId?: string | null;
+  cardBackDesign?: string | null;
+  printingFinish?: string | null;
+  physicalForm?: string | null;
+  printedIdentifiers?: CreatePrintedIdentifierInput[];
+  componentGroup?: CreatePrintingGroupInput | null;
   cardKind: string;
   subtype?: string | null;
   rarity?: string | null;
@@ -153,6 +204,10 @@ export type CreateCollectionEntryInput = {
   sealed?: boolean;
   notes?: string | null;
   deckPool?: string | null;
+  photoBatch?: string | null;
+  gridPosition?: string | null;
+  frontPhoto?: string | null;
+  backPhoto?: string | null;
   imageProvider?: string | null;
   imageExternalId?: string | null;
   imageUrl?: string | null;

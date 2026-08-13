@@ -29,6 +29,13 @@
       "when": 1786590000000,
       "tag": "0003_international_vintage_identity",
       "breakpoints": true
+    },
+    {
+      "idx": 4,
+      "version": "6",
+      "when": 1786629600000,
+      "tag": "0004_printing_cataloging",
+      "breakpoints": true
     }
   ]
 }

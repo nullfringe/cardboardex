@@ -5,6 +5,14 @@ import {
   collectorIdentifierKey,
   collectorIdentifierSort,
 } from "@/lib/printing-identity";
+import {
+  parsePrintedIdentifiers,
+  PrintedIdentifierFormatError,
+} from "@/lib/printed-identifiers";
+import type {
+  CreatePrintedIdentifierInput,
+  CreatePrintingGroupInput,
+} from "@/lib/types/collection";
 
 export const COLLECTION_CSV_HEADERS = [
   "Inventory ID",
@@ -49,6 +57,19 @@ export const COLLECTION_CSV_OPTIONAL_HEADERS = [
   "Catalog Set ID",
   "Catalog Card ID",
   "Printing Variant",
+  "Card Back Design",
+  "Printing Finish",
+  "Physical Form",
+  "Printed Identifiers",
+  "Component Group Key",
+  "Component Group Type",
+  "Component Group Name",
+  "Expected Component Count",
+  "Component Key",
+  "Photo Batch",
+  "Grid Position",
+  "Front Photo",
+  "Back Photo",
 ] as const;
 
 export type CollectionCsvHeader =
@@ -87,6 +108,11 @@ export type ParsedCollectionRow = {
   catalogProvider: string | null;
   catalogSetId: string | null;
   catalogCardId: string | null;
+  cardBackDesign: string | null;
+  printingFinish: string | null;
+  physicalForm: string | null;
+  printedIdentifiers: CreatePrintedIdentifierInput[];
+  componentGroup: CreatePrintingGroupInput | null;
   externalReferenceUrl: string | null;
   evolvesFrom: string | null;
   abilityRule: string | null;
@@ -101,6 +127,10 @@ export type ParsedCollectionRow = {
   sealed: boolean;
   printingVariantKey: string;
   languageCode: string;
+  photoBatch: string | null;
+  gridPosition: string | null;
+  frontPhoto: string | null;
+  backPhoto: string | null;
   rawRow: RawImportRow;
 };
 
@@ -161,6 +191,20 @@ function errorMessage(error: unknown): string {
 function normalizedCell(value: string): string | null {
   const normalized = value.trim().normalize("NFC");
   return normalized.length > 0 ? normalized : null;
+}
+
+function normalizedKey(value: string | null): string | null {
+  if (value === null) {
+    return null;
+  }
+
+  return (
+    value
+      .normalize("NFKC")
+      .toLocaleLowerCase("en-US")
+      .replace(/[^a-z0-9]+/gu, "-")
+      .replace(/^-|-$/gu, "") || null
+  );
 }
 
 function requiredCell(
@@ -497,6 +541,65 @@ function parseRecord(
       ?.toLocaleLowerCase("en-US")
       .replace(/[^a-z0-9]+/gu, "-")
       .replace(/^-|-$/gu, "") || finish.printingVariantKey;
+  let printedIdentifiers: CreatePrintedIdentifierInput[];
+  try {
+    printedIdentifiers = parsePrintedIdentifiers(
+      normalizedCell(rawRow["Printed Identifiers"] ?? ""),
+    );
+  } catch (error) {
+    if (error instanceof PrintedIdentifierFormatError) {
+      throw new CollectionCsvError(error.message, {
+        ...context,
+        field: "Printed Identifiers",
+      });
+    }
+    throw error;
+  }
+
+  const componentGroupKey = normalizedKey(
+    normalizedCell(rawRow["Component Group Key"] ?? ""),
+  );
+  const componentGroupType = normalizedKey(
+    normalizedCell(rawRow["Component Group Type"] ?? ""),
+  );
+  const componentGroupName = normalizedCell(
+    rawRow["Component Group Name"] ?? "",
+  );
+  const componentKey = normalizedKey(
+    normalizedCell(rawRow["Component Key"] ?? ""),
+  );
+  const expectedComponentCount = parseInteger(
+    normalizedCell(rawRow["Expected Component Count"] ?? ""),
+    "Expected Component Count",
+    context,
+    { optional: true, minimum: 1 },
+  );
+  const groupRequiredParts = [
+    componentGroupKey,
+    componentGroupType,
+    componentKey,
+  ];
+  if (
+    [...groupRequiredParts, componentGroupName, expectedComponentCount].some(
+      (part) => part !== null,
+    ) &&
+    groupRequiredParts.some((part) => part === null)
+  ) {
+    throw new CollectionCsvError(
+      "Component Group Key, Component Group Type, and Component Key must all be supplied together",
+      { ...context, field: "Component Group Key" },
+    );
+  }
+  const componentGroup =
+    componentGroupKey && componentGroupType && componentKey
+      ? {
+          groupKey: componentGroupKey,
+          groupType: componentGroupType,
+          name: componentGroupName,
+          expectedComponentCount,
+          componentKey,
+        }
+      : null;
 
   return {
     csvRowNumber,
@@ -528,6 +631,11 @@ function parseRecord(
     catalogProvider,
     catalogSetId,
     catalogCardId,
+    cardBackDesign: normalizedCell(rawRow["Card Back Design"] ?? ""),
+    printingFinish: normalizedCell(rawRow["Printing Finish"] ?? ""),
+    physicalForm: normalizedCell(rawRow["Physical Form"] ?? ""),
+    printedIdentifiers,
+    componentGroup,
     externalReferenceUrl,
     evolvesFrom: normalizedCell(rawRow["Evolves From"] ?? ""),
     abilityRule: normalizedCell(rawRow["Ability / Rule"] ?? ""),
@@ -544,6 +652,10 @@ function parseRecord(
     sealed: finish.sealed,
     printingVariantKey,
     languageCode,
+    photoBatch: normalizedCell(rawRow["Photo Batch"] ?? ""),
+    gridPosition: normalizedCell(rawRow["Grid Position"] ?? ""),
+    frontPhoto: normalizedCell(rawRow["Front Photo"] ?? ""),
+    backPhoto: normalizedCell(rawRow["Back Photo"] ?? ""),
     rawRow,
   };
 }

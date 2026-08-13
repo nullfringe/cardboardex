@@ -1,7 +1,11 @@
 import { NextResponse } from "next/server";
 import { ZodError } from "zod";
 
-import { CardSetCatalogConflictError } from "@/lib/repositories/collection-repository";
+import {
+  CardPrintingCatalogConflictError,
+  CardSetCatalogConflictError,
+  PrintingGroupConflictError,
+} from "@/lib/repositories/collection-repository";
 import { LastProfileDeletionError } from "@/lib/repositories/profile-repository";
 import { ProfileNotFoundError } from "@/lib/services/profile-service";
 
@@ -17,7 +21,11 @@ export function apiErrorResponse(error: unknown): NextResponse<ApiErrorBody> {
   if (error instanceof LastProfileDeletionError) {
     return NextResponse.json({ error: error.message }, { status: 409 });
   }
-  if (error instanceof CardSetCatalogConflictError) {
+  if (
+    error instanceof CardSetCatalogConflictError ||
+    error instanceof CardPrintingCatalogConflictError ||
+    error instanceof PrintingGroupConflictError
+  ) {
     return NextResponse.json({ error: error.message }, { status: 409 });
   }
   if (error instanceof ZodError) {

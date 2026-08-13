@@ -94,6 +94,9 @@ export const collectionListQuerySchema = z
     setCode: optionalFilterText(),
     subtype: optionalFilterText(),
     rarity: optionalFilterText(),
+    printingFinish: optionalFilterText(500),
+    cardBackDesign: optionalFilterText(500),
+    physicalForm: optionalFilterText(500),
     finishVariant: optionalFilterText(500),
     sealed: z.boolean().optional(),
     sort: z
@@ -141,6 +144,45 @@ const attackInputSchema = z
   })
   .strict();
 
+const printedIdentifierInputSchema = z
+  .object({
+    role: requiredText("Printed identifier role", 100)
+      .transform((value) => value.toLocaleLowerCase("en-US"))
+      .pipe(
+        z
+          .string()
+          .regex(
+            /^[a-z0-9]+(?:[-/][a-z0-9]+)*$/u,
+            "Printed identifier role is invalid.",
+          ),
+      ),
+    value: requiredText("Printed identifier value", 300),
+    label: nullableText("Printed identifier label", 200),
+  })
+  .strict();
+
+const printingGroupInputSchema = z
+  .object({
+    groupKey: requiredText("Component group key", 200)
+      .transform(slugify)
+      .pipe(z.string().min(1, "Component group key is invalid.")),
+    groupType: requiredText("Component group type", 200)
+      .transform(slugify)
+      .pipe(z.string().min(1, "Component group type is invalid.")),
+    name: nullableText("Component group name", 300),
+    expectedComponentCount: z
+      .number()
+      .int()
+      .positive()
+      .max(100)
+      .nullable()
+      .optional(),
+    componentKey: requiredText("Component key", 100)
+      .transform(slugify)
+      .pipe(z.string().min(1, "Component key is invalid.")),
+  })
+  .strict();
+
 export const createCollectionEntrySchema = z
   .object({
     gameSlug: requiredText("Game slug", 100)
@@ -161,6 +203,14 @@ export const createCollectionEntrySchema = z
     catalogProvider: nullableText("Catalog provider", 100),
     catalogSetId: nullableText("Catalog set ID", 300),
     catalogCardId: nullableText("Catalog card ID", 500),
+    cardBackDesign: nullableText("Card-back design", 300),
+    printingFinish: nullableText("Published printing finish", 300),
+    physicalForm: nullableText("Physical form", 300),
+    printedIdentifiers: z
+      .array(printedIdentifierInputSchema)
+      .max(50)
+      .optional(),
+    componentGroup: printingGroupInputSchema.nullable().optional(),
     printingVariantKey: requiredText("Printing variant key", 200)
       .transform(slugify)
       .pipe(
@@ -192,6 +242,10 @@ export const createCollectionEntrySchema = z
     sealed: z.boolean().optional(),
     notes: nullableText("Notes"),
     deckPool: nullableText("Deck pool", 500),
+    photoBatch: nullableText("Photo batch", 500),
+    gridPosition: nullableText("Grid position", 200),
+    frontPhoto: nullableText("Front photo", 1_000),
+    backPhoto: nullableText("Back photo", 1_000),
     imageProvider: nullableText("Image provider", 200),
     imageExternalId: nullableText("Image external ID", 500),
     imageUrl: trustedImageUrl,

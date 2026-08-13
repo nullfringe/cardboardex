@@ -1,5 +1,6 @@
 export {
   COLLECTION_CSV_HEADERS,
+  COLLECTION_CSV_OPTIONAL_HEADERS,
   CollectionCsvError,
   parseCollectionCsv,
   type CollectionCsvHeader,

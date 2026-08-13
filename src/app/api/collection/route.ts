@@ -44,6 +44,9 @@ function queryFromUrl(request: Request): CollectionListQuery {
     setCode: optionalParameter(searchParams, "set"),
     subtype: optionalParameter(searchParams, "subtype"),
     rarity: optionalParameter(searchParams, "rarity"),
+    printingFinish: optionalParameter(searchParams, "printingFinish"),
+    cardBackDesign: optionalParameter(searchParams, "cardBack"),
+    physicalForm: optionalParameter(searchParams, "form"),
     finishVariant: optionalParameter(searchParams, "variant"),
   };
 

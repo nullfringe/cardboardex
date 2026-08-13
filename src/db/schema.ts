@@ -17,6 +17,10 @@ export type PrintingMetadata = {
 
 export type OwnedCardMetadata = {
   deckPool?: string;
+  photoBatch?: string;
+  gridPosition?: string;
+  frontPhoto?: string;
+  backPhoto?: string;
 };
 
 export type RawImportRow = Record<string, string>;
@@ -97,6 +101,9 @@ export const cardPrintings = sqliteTable(
     languageCode: text("language_code").notNull().default("en"),
     catalogProvider: text("catalog_provider"),
     catalogExternalId: text("catalog_external_id"),
+    cardBackDesign: text("card_back_design"),
+    printingFinish: text("printing_finish"),
+    physicalForm: text("physical_form"),
     cardKind: text("card_kind").notNull(),
     subtype: text("subtype"),
     rarity: text("rarity"),
@@ -128,6 +135,100 @@ export const cardPrintings = sqliteTable(
     uniqueIndex("card_printings_identity_unique").on(table.stableIdentityKey),
     index("card_printings_name_index").on(table.name),
     index("card_printings_kind_index").on(table.cardKind),
+  ],
+);
+
+export const printingIdentifiers = sqliteTable(
+  "printing_identifiers",
+  {
+    id: integer("id").primaryKey({ autoIncrement: true }),
+    printingId: integer("printing_id")
+      .notNull()
+      .references(() => cardPrintings.id, {
+        onDelete: "cascade",
+        onUpdate: "cascade",
+      }),
+    role: text("role").notNull(),
+    value: text("value").notNull(),
+    label: text("label"),
+    createdAt: text("created_at")
+      .notNull()
+      .default(sql`CURRENT_TIMESTAMP`),
+  },
+  (table) => [
+    uniqueIndex("printing_identifiers_printing_role_value_unique").on(
+      table.printingId,
+      table.role,
+      table.value,
+    ),
+    index("printing_identifiers_value_index").on(table.value),
+  ],
+);
+
+export const printingGroups = sqliteTable(
+  "printing_groups",
+  {
+    id: integer("id").primaryKey({ autoIncrement: true }),
+    setId: integer("set_id")
+      .notNull()
+      .references(() => cardSets.id, {
+        onDelete: "restrict",
+        onUpdate: "cascade",
+      }),
+    groupKey: text("group_key").notNull(),
+    groupType: text("group_type").notNull(),
+    name: text("name"),
+    expectedComponentCount: integer("expected_component_count"),
+    createdAt: text("created_at")
+      .notNull()
+      .default(sql`CURRENT_TIMESTAMP`),
+    updatedAt: text("updated_at")
+      .notNull()
+      .default(sql`CURRENT_TIMESTAMP`),
+  },
+  (table) => [
+    uniqueIndex("printing_groups_set_key_unique").on(
+      table.setId,
+      table.groupKey,
+    ),
+    check(
+      "printing_groups_expected_count_positive",
+      sql`${table.expectedComponentCount} IS NULL OR ${table.expectedComponentCount} > 0`,
+    ),
+  ],
+);
+
+export const printingGroupMembers = sqliteTable(
+  "printing_group_members",
+  {
+    id: integer("id").primaryKey({ autoIncrement: true }),
+    groupId: integer("group_id")
+      .notNull()
+      .references(() => printingGroups.id, {
+        onDelete: "cascade",
+        onUpdate: "cascade",
+      }),
+    printingId: integer("printing_id")
+      .notNull()
+      .references(() => cardPrintings.id, {
+        onDelete: "cascade",
+        onUpdate: "cascade",
+      }),
+    componentKey: text("component_key").notNull(),
+    createdAt: text("created_at")
+      .notNull()
+      .default(sql`CURRENT_TIMESTAMP`),
+  },
+  (table) => [
+    uniqueIndex("printing_group_members_group_printing_unique").on(
+      table.groupId,
+      table.printingId,
+    ),
+    uniqueIndex("printing_group_members_group_component_unique").on(
+      table.groupId,
+      table.componentKey,
+    ),
+    index("printing_group_members_printing_index").on(table.printingId),
   ],
 );
 

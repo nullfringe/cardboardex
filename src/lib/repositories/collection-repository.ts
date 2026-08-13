@@ -4,6 +4,7 @@ import {
   desc,
   eq,
   isNotNull,
+  isNull,
   or,
   sql,
   type SQL,
@@ -18,6 +19,9 @@ import {
   games,
   ownedCards,
   pokemonDetails,
+  printingGroupMembers,
+  printingGroups,
+  printingIdentifiers,
   profiles,
 } from "@/db/schema";
 import { languageName } from "@/lib/languages";
@@ -58,6 +62,22 @@ export class CardSetCatalogConflictError extends Error {
   }
 }
 
+export class CardPrintingCatalogConflictError extends Error {
+  constructor(name: string, existing: string, supplied: string) {
+    super(
+      `${name} is already linked to catalog identity ${existing}; supplied ${supplied} conflicts.`,
+    );
+    this.name = "CardPrintingCatalogConflictError";
+  }
+}
+
+export class PrintingGroupConflictError extends Error {
+  constructor(message: string) {
+    super(message);
+    this.name = "PrintingGroupConflictError";
+  }
+}
+
 const listSelection = {
   ownedCardId: ownedCards.id,
   printingId: cardPrintings.id,
@@ -71,6 +91,10 @@ const listSelection = {
   setCode: cardSets.code,
   collectorNumber: cardPrintings.collectorNumber,
   languageCode: cardPrintings.languageCode,
+  printingVariantKey: cardPrintings.printingVariantKey,
+  printingFinish: cardPrintings.printingFinish,
+  cardBackDesign: cardPrintings.cardBackDesign,
+  physicalForm: cardPrintings.physicalForm,
   cardKind: cardPrintings.cardKind,
   subtype: cardPrintings.subtype,
   rarity: cardPrintings.rarity,
@@ -84,6 +108,9 @@ const listSelection = {
   imageProvider: cardPrintings.imageProvider,
   imageExternalId: cardPrintings.imageExternalId,
   imageUrl: cardPrintings.imageUrl,
+  printedIdentifierText: sql<
+    string | null
+  >`(select group_concat(${printingIdentifiers.role} || ' ' || ${printingIdentifiers.value}, ' ') from ${printingIdentifiers} where ${printingIdentifiers.printingId} = ${cardPrintings.id})`,
 };
 
 function collectionBaseQuery(db: AppDatabase) {
@@ -118,6 +145,7 @@ function filterConditions(filters: CollectionFilters): SQL[] {
       sql`lower(${cardPrintings.canonicalName}) like ${pattern} escape ${escapeCharacter}`,
       sql`lower(${cardPrintings.collectorNumber}) like ${pattern} escape ${escapeCharacter}`,
       sql`lower(${cardSets.name}) like ${pattern} escape ${escapeCharacter}`,
+      sql`exists (select 1 from ${printingIdentifiers} where ${printingIdentifiers.printingId} = ${cardPrintings.id} and (lower(${printingIdentifiers.role}) like ${pattern} escape ${escapeCharacter} or lower(${printingIdentifiers.value}) like ${pattern} escape ${escapeCharacter}))`,
     );
 
     if (searchCondition) {
@@ -149,6 +177,21 @@ function filterConditions(filters: CollectionFilters): SQL[] {
   }
   if (normalizedText(filters.rarity)) {
     conditions.push(eq(cardPrintings.rarity, filters.rarity!.trim()));
+  }
+  if (normalizedText(filters.printingFinish)) {
+    conditions.push(
+      eq(cardPrintings.printingFinish, filters.printingFinish!.trim()),
+    );
+  }
+  if (normalizedText(filters.cardBackDesign)) {
+    conditions.push(
+      eq(cardPrintings.cardBackDesign, filters.cardBackDesign!.trim()),
+    );
+  }
+  if (normalizedText(filters.physicalForm)) {
+    conditions.push(
+      eq(cardPrintings.physicalForm, filters.physicalForm!.trim()),
+    );
   }
   if (normalizedText(filters.finishVariant)) {
     conditions.push(
@@ -258,7 +301,6 @@ export class CollectionRepository {
     const row = this.db
       .select({
         ...listSelection,
-        printingVariantKey: cardPrintings.printingVariantKey,
         stableIdentityKey: cardPrintings.stableIdentityKey,
         catalogProvider: cardPrintings.catalogProvider,
         catalogExternalId: cardPrintings.catalogExternalId,
@@ -309,6 +351,36 @@ export class CollectionRepository {
       .orderBy(asc(attacks.position))
       .all();
 
+    const identifierRows = this.db
+      .select({
+        id: printingIdentifiers.id,
+        role: printingIdentifiers.role,
+        value: printingIdentifiers.value,
+        label: printingIdentifiers.label,
+      })
+      .from(printingIdentifiers)
+      .where(eq(printingIdentifiers.printingId, row.printingId))
+      .orderBy(asc(printingIdentifiers.id))
+      .all();
+
+    const groupRows = this.db
+      .select({
+        id: printingGroups.id,
+        groupKey: printingGroups.groupKey,
+        groupType: printingGroups.groupType,
+        name: printingGroups.name,
+        expectedComponentCount: printingGroups.expectedComponentCount,
+        componentKey: printingGroupMembers.componentKey,
+      })
+      .from(printingGroupMembers)
+      .innerJoin(
+        printingGroups,
+        eq(printingGroupMembers.groupId, printingGroups.id),
+      )
+      .where(eq(printingGroupMembers.printingId, row.printingId))
+      .orderBy(asc(printingGroups.id))
+      .all();
+
     const { ownedMetadata, printingMetadata, ...detail } = row;
 
     return {
@@ -320,7 +392,13 @@ export class CollectionRepository {
       visibleMoveOrEffect1: printingMetadata.visibleMoveOrEffect1 ?? null,
       visibleMoveOrEffect2: printingMetadata.visibleMoveOrEffect2 ?? null,
       deckPool: ownedMetadata.deckPool ?? null,
+      photoBatch: ownedMetadata.photoBatch ?? null,
+      gridPosition: ownedMetadata.gridPosition ?? null,
+      frontPhoto: ownedMetadata.frontPhoto ?? null,
+      backPhoto: ownedMetadata.backPhoto ?? null,
       attacks: attackRows,
+      printedIdentifiers: identifierRows,
+      printingGroups: groupRows,
     };
   }
 
@@ -440,6 +518,57 @@ export class CollectionRepository {
       .groupBy(cardPrintings.languageCode)
       .orderBy(asc(cardPrintings.languageCode))
       .all();
+    const printingFinishRows = this.db
+      .select({
+        value: cardPrintings.printingFinish,
+        label: cardPrintings.printingFinish,
+        count,
+      })
+      .from(ownedCards)
+      .innerJoin(cardPrintings, eq(ownedCards.printingId, cardPrintings.id))
+      .where(
+        and(
+          eq(ownedCards.profileId, profileId),
+          isNotNull(cardPrintings.printingFinish),
+        ),
+      )
+      .groupBy(cardPrintings.printingFinish)
+      .orderBy(asc(cardPrintings.printingFinish))
+      .all();
+    const cardBackRows = this.db
+      .select({
+        value: cardPrintings.cardBackDesign,
+        label: cardPrintings.cardBackDesign,
+        count,
+      })
+      .from(ownedCards)
+      .innerJoin(cardPrintings, eq(ownedCards.printingId, cardPrintings.id))
+      .where(
+        and(
+          eq(ownedCards.profileId, profileId),
+          isNotNull(cardPrintings.cardBackDesign),
+        ),
+      )
+      .groupBy(cardPrintings.cardBackDesign)
+      .orderBy(asc(cardPrintings.cardBackDesign))
+      .all();
+    const physicalFormRows = this.db
+      .select({
+        value: cardPrintings.physicalForm,
+        label: cardPrintings.physicalForm,
+        count,
+      })
+      .from(ownedCards)
+      .innerJoin(cardPrintings, eq(ownedCards.printingId, cardPrintings.id))
+      .where(
+        and(
+          eq(ownedCards.profileId, profileId),
+          isNotNull(cardPrintings.physicalForm),
+        ),
+      )
+      .groupBy(cardPrintings.physicalForm)
+      .orderBy(asc(cardPrintings.physicalForm))
+      .all();
 
     return {
       games: facetsFromRows(gameRows),
@@ -466,6 +595,27 @@ export class CollectionRepository {
         label: languageName(row.value),
         count: Number(row.count),
       })),
+      printingFinishes: facetsFromRows(
+        printingFinishRows as Array<{
+          value: string;
+          label: string;
+          count: number;
+        }>,
+      ),
+      cardBackDesigns: facetsFromRows(
+        cardBackRows as Array<{
+          value: string;
+          label: string;
+          count: number;
+        }>,
+      ),
+      physicalForms: facetsFromRows(
+        physicalFormRows as Array<{
+          value: string;
+          label: string;
+          count: number;
+        }>,
+      ),
     };
   }
 
@@ -603,23 +753,193 @@ export class CollectionRepository {
         }
       }
 
+      let componentGroup:
+        | {
+            id: number;
+            groupKey: string;
+            groupType: string;
+            name: string | null;
+            expectedComponentCount: number | null;
+          }
+        | undefined;
+      if (input.componentGroup) {
+        componentGroup = tx
+          .select({
+            id: printingGroups.id,
+            groupKey: printingGroups.groupKey,
+            groupType: printingGroups.groupType,
+            name: printingGroups.name,
+            expectedComponentCount: printingGroups.expectedComponentCount,
+          })
+          .from(printingGroups)
+          .where(
+            and(
+              eq(printingGroups.setId, cardSet.id),
+              eq(printingGroups.groupKey, input.componentGroup.groupKey),
+            ),
+          )
+          .get();
+
+        if (!componentGroup) {
+          componentGroup = tx
+            .insert(printingGroups)
+            .values({
+              setId: cardSet.id,
+              groupKey: input.componentGroup.groupKey,
+              groupType: input.componentGroup.groupType,
+              name: input.componentGroup.name,
+              expectedComponentCount:
+                input.componentGroup.expectedComponentCount,
+            })
+            .returning({
+              id: printingGroups.id,
+              groupKey: printingGroups.groupKey,
+              groupType: printingGroups.groupType,
+              name: printingGroups.name,
+              expectedComponentCount: printingGroups.expectedComponentCount,
+            })
+            .get();
+        } else {
+          const suppliedCount =
+            input.componentGroup.expectedComponentCount ?? null;
+          if (
+            componentGroup.groupType !== input.componentGroup.groupType ||
+            (componentGroup.name !== null &&
+              input.componentGroup.name != null &&
+              componentGroup.name !== input.componentGroup.name) ||
+            (componentGroup.expectedComponentCount !== null &&
+              suppliedCount !== null &&
+              componentGroup.expectedComponentCount !== suppliedCount)
+          ) {
+            throw new PrintingGroupConflictError(
+              `Component group ${componentGroup.groupKey} conflicts with its existing published group metadata.`,
+            );
+          }
+          if (
+            (componentGroup.name === null && input.componentGroup.name) ||
+            (componentGroup.expectedComponentCount === null &&
+              suppliedCount !== null)
+          ) {
+            tx.update(printingGroups)
+              .set({
+                name: componentGroup.name ?? input.componentGroup.name,
+                expectedComponentCount:
+                  componentGroup.expectedComponentCount ?? suppliedCount,
+              })
+              .where(eq(printingGroups.id, componentGroup.id))
+              .run();
+          }
+        }
+      }
+
       const variantKey = input.printingVariantKey ?? "standard";
       const printingKey = collectorIdentifierKey(input.collectorNumber ?? null);
-      const stableIdentityKey = stablePrintingIdentityKey({
+      const identityInput = {
         gameSlug: input.gameSlug,
         setCode: input.setCode,
         languageCode,
         name: input.name,
         collectorNumber: input.collectorNumber ?? null,
         printingVariantKey: variantKey,
+        printingFinish: input.printingFinish,
+        physicalForm: input.physicalForm,
+        cardBackDesign: input.cardBackDesign,
         catalogProvider: input.catalogProvider,
+        catalogSetId: input.catalogSetId,
         catalogCardId: input.catalogCardId,
-      });
-      let printing = tx
-        .select({ id: cardPrintings.id })
+        componentGroupKey: input.componentGroup?.groupKey,
+        componentKey: input.componentGroup?.componentKey,
+      };
+      const stableIdentityKey = stablePrintingIdentityKey(identityInput);
+      const exactPrinting = tx
+        .select({
+          id: cardPrintings.id,
+          setId: cardPrintings.setId,
+          stableIdentityKey: cardPrintings.stableIdentityKey,
+          catalogProvider: cardPrintings.catalogProvider,
+          catalogExternalId: cardPrintings.catalogExternalId,
+          cardBackDesign: cardPrintings.cardBackDesign,
+        })
         .from(cardPrintings)
         .where(eq(cardPrintings.stableIdentityKey, stableIdentityKey))
         .get();
+
+      const candidateConditions = [
+        eq(cardPrintings.setId, cardSet.id),
+        eq(cardPrintings.languageCode, languageCode),
+        eq(cardPrintings.printingVariantKey, variantKey),
+        input.printingFinish == null
+          ? isNull(cardPrintings.printingFinish)
+          : eq(cardPrintings.printingFinish, input.printingFinish),
+        input.physicalForm == null
+          ? isNull(cardPrintings.physicalForm)
+          : eq(cardPrintings.physicalForm, input.physicalForm),
+        printingKey === null
+          ? and(
+              isNull(cardPrintings.collectorNumberKey),
+              eq(cardPrintings.name, input.name),
+            )
+          : eq(cardPrintings.collectorNumberKey, printingKey),
+      ];
+      if (input.cardBackDesign != null) {
+        const compatibleBack = or(
+          isNull(cardPrintings.cardBackDesign),
+          eq(cardPrintings.cardBackDesign, input.cardBackDesign),
+        );
+        if (compatibleBack) candidateConditions.push(compatibleBack);
+      }
+
+      let candidates = tx
+        .select({
+          id: cardPrintings.id,
+          setId: cardPrintings.setId,
+          stableIdentityKey: cardPrintings.stableIdentityKey,
+          catalogProvider: cardPrintings.catalogProvider,
+          catalogExternalId: cardPrintings.catalogExternalId,
+          cardBackDesign: cardPrintings.cardBackDesign,
+        })
+        .from(cardPrintings)
+        .where(and(...candidateConditions))
+        .all();
+
+      if (componentGroup && input.componentGroup) {
+        candidates = candidates.filter((candidate) => {
+          const membership = tx
+            .select({ componentKey: printingGroupMembers.componentKey })
+            .from(printingGroupMembers)
+            .where(
+              and(
+                eq(printingGroupMembers.groupId, componentGroup.id),
+                eq(printingGroupMembers.printingId, candidate.id),
+              ),
+            )
+            .get();
+          return (
+            membership === undefined ||
+            membership.componentKey === input.componentGroup?.componentKey
+          );
+        });
+      }
+
+      if (
+        exactPrinting &&
+        !candidates.some((candidate) => candidate.id === exactPrinting.id)
+      ) {
+        throw new CardPrintingCatalogConflictError(
+          input.name,
+          exactPrinting.stableIdentityKey,
+          "incompatible published printing facts",
+        );
+      }
+      if (candidates.length > 1) {
+        throw new CardPrintingCatalogConflictError(
+          input.name,
+          "multiple compatible local printings",
+          stableIdentityKey,
+        );
+      }
+
+      let printing = exactPrinting ?? candidates[0];
 
       let createdPrinting = false;
       if (!printing) {
@@ -651,6 +971,9 @@ export class CollectionRepository {
             languageCode,
             catalogProvider: input.catalogProvider,
             catalogExternalId: input.catalogCardId,
+            cardBackDesign: input.cardBackDesign,
+            printingFinish: input.printingFinish,
+            physicalForm: input.physicalForm,
             cardKind: input.cardKind,
             subtype: input.subtype,
             rarity: input.rarity,
@@ -665,9 +988,98 @@ export class CollectionRepository {
             externalReferenceUrl: input.externalReferenceUrl,
             metadata,
           })
-          .returning({ id: cardPrintings.id })
+          .returning({
+            id: cardPrintings.id,
+            setId: cardPrintings.setId,
+            stableIdentityKey: cardPrintings.stableIdentityKey,
+            catalogProvider: cardPrintings.catalogProvider,
+            catalogExternalId: cardPrintings.catalogExternalId,
+            cardBackDesign: cardPrintings.cardBackDesign,
+          })
           .get();
         createdPrinting = true;
+      } else {
+        if (input.catalogProvider && input.catalogCardId) {
+          if (
+            printing.catalogProvider !== null &&
+            (printing.catalogProvider !== input.catalogProvider ||
+              printing.catalogExternalId !== input.catalogCardId)
+          ) {
+            throw new CardPrintingCatalogConflictError(
+              input.name,
+              `${printing.catalogProvider}/${printing.catalogExternalId}`,
+              `${input.catalogProvider}/${input.catalogCardId}`,
+            );
+          }
+          tx.update(cardPrintings)
+            .set({
+              catalogProvider: input.catalogProvider,
+              catalogExternalId: input.catalogCardId,
+              stableIdentityKey:
+                printing.catalogProvider === null
+                  ? stableIdentityKey
+                  : printing.stableIdentityKey,
+              cardBackDesign:
+                printing.cardBackDesign ?? input.cardBackDesign ?? null,
+              updatedAt: sql`CURRENT_TIMESTAMP`,
+            })
+            .where(eq(cardPrintings.id, printing.id))
+            .run();
+        } else if (
+          printing.cardBackDesign === null &&
+          input.cardBackDesign != null
+        ) {
+          tx.update(cardPrintings)
+            .set({
+              cardBackDesign: input.cardBackDesign,
+              updatedAt: sql`CURRENT_TIMESTAMP`,
+            })
+            .where(eq(cardPrintings.id, printing.id))
+            .run();
+        }
+      }
+
+      if (input.printedIdentifiers?.length) {
+        tx.insert(printingIdentifiers)
+          .values(
+            input.printedIdentifiers.map((identifier) => ({
+              printingId: printing.id,
+              role: identifier.role,
+              value: identifier.value,
+              label: identifier.label,
+            })),
+          )
+          .onConflictDoNothing()
+          .run();
+      }
+
+      if (componentGroup && input.componentGroup) {
+        const occupiedComponent = tx
+          .select({ printingId: printingGroupMembers.printingId })
+          .from(printingGroupMembers)
+          .where(
+            and(
+              eq(printingGroupMembers.groupId, componentGroup.id),
+              eq(
+                printingGroupMembers.componentKey,
+                input.componentGroup.componentKey,
+              ),
+            ),
+          )
+          .get();
+        if (occupiedComponent && occupiedComponent.printingId !== printing.id) {
+          throw new PrintingGroupConflictError(
+            `Component ${input.componentGroup.componentKey} is already assigned in group ${componentGroup.groupKey}.`,
+          );
+        }
+        tx.insert(printingGroupMembers)
+          .values({
+            groupId: componentGroup.id,
+            printingId: printing.id,
+            componentKey: input.componentGroup.componentKey,
+          })
+          .onConflictDoNothing()
+          .run();
       }
 
       if (createdPrinting) {
@@ -719,7 +1131,13 @@ export class CollectionRepository {
           finishVariant: input.finishVariant,
           sealed: input.sealed ?? false,
           notes: input.notes,
-          metadata: input.deckPool ? { deckPool: input.deckPool } : {},
+          metadata: {
+            ...(input.deckPool ? { deckPool: input.deckPool } : {}),
+            ...(input.photoBatch ? { photoBatch: input.photoBatch } : {}),
+            ...(input.gridPosition ? { gridPosition: input.gridPosition } : {}),
+            ...(input.frontPhoto ? { frontPhoto: input.frontPhoto } : {}),
+            ...(input.backPhoto ? { backPhoto: input.backPhoto } : {}),
+          },
         })
         .returning({ id: ownedCards.id })
         .get().id;

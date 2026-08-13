@@ -159,6 +159,9 @@ export function CardDetailView({
                   label="Printing variant"
                   value={card.printingVariantKey}
                 />
+                <Fact label="Published finish" value={card.printingFinish} />
+                <Fact label="Card-back design" value={card.cardBackDesign} />
+                <Fact label="Physical form" value={card.physicalForm} />
                 <Fact label="Regulation mark" value={card.regulationMark} />
                 <Fact label="Evolves from" value={card.evolvesFrom} />
                 <Fact
@@ -174,7 +177,55 @@ export function CardDetailView({
                   value={card.imageUrl ? card.imageProvider : null}
                 />
               </dl>
+              {card.printedIdentifiers.length ? (
+                <dl className="fact-grid">
+                  {card.printedIdentifiers.map((identifier) => (
+                    <Fact
+                      key={identifier.id}
+                      label={
+                        identifier.label ??
+                        identifier.role.replace(/[-/]/gu, " ")
+                      }
+                      value={identifier.value}
+                    />
+                  ))}
+                </dl>
+              ) : null}
+              {card.printingGroups.length ? (
+                <dl className="fact-grid">
+                  {card.printingGroups.map((group) => (
+                    <Fact
+                      key={group.id}
+                      label={group.name ?? group.groupType}
+                      value={`${group.componentKey}${group.expectedComponentCount ? ` of ${group.expectedComponentCount}` : ""}`}
+                    />
+                  ))}
+                </dl>
+              ) : null}
             </section>
+
+            {card.photoBatch ||
+            card.gridPosition ||
+            card.frontPhoto ||
+            card.backPhoto ? (
+              <section
+                className="detail-section"
+                aria-labelledby="provenance-heading"
+              >
+                <div className="section-heading">
+                  <div>
+                    <p className="eyebrow">Owned lot</p>
+                    <h2 id="provenance-heading">Photo provenance</h2>
+                  </div>
+                </div>
+                <dl className="fact-grid">
+                  <Fact label="Photo batch" value={card.photoBatch} />
+                  <Fact label="Grid position" value={card.gridPosition} />
+                  <Fact label="Front photo" value={card.frontPhoto} />
+                  <Fact label="Back photo" value={card.backPhoto} />
+                </dl>
+              </section>
+            ) : null}
 
             {card.specialRuleBox || card.abilityRule ? (
               <section

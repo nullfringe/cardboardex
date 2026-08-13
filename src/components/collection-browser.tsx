@@ -37,6 +37,9 @@ type BrowserFilters = {
   pokemonType: string;
   setCode: string;
   subtype: string;
+  printingFinish: string;
+  cardBackDesign: string;
+  physicalForm: string;
   finishVariant: string;
   rarity: string;
 };
@@ -48,6 +51,9 @@ const emptyFilters: BrowserFilters = {
   pokemonType: "",
   setCode: "",
   subtype: "",
+  printingFinish: "",
+  cardBackDesign: "",
+  physicalForm: "",
   finishVariant: "",
   rarity: "",
 };
@@ -120,6 +126,10 @@ function matchesSearch(item: CollectionListItem, query: string): boolean {
       item.collectorNumber,
       item.setName,
       item.setCode,
+      item.printedIdentifierText,
+      item.printingFinish,
+      item.cardBackDesign,
+      item.physicalForm,
     ]
       .filter(Boolean)
       .join(" "),
@@ -138,6 +148,11 @@ function matchesFilters(
     (!filters.pokemonType || item.pokemonType === filters.pokemonType) &&
     (!filters.setCode || item.setCode === filters.setCode) &&
     (!filters.subtype || item.subtype === filters.subtype) &&
+    (!filters.printingFinish ||
+      item.printingFinish === filters.printingFinish) &&
+    (!filters.cardBackDesign ||
+      item.cardBackDesign === filters.cardBackDesign) &&
+    (!filters.physicalForm || item.physicalForm === filters.physicalForm) &&
     (!filters.finishVariant || item.finishVariant === filters.finishVariant) &&
     (!filters.rarity || item.rarity === filters.rarity)
   );
@@ -242,6 +257,12 @@ function CollectionCard({ item }: { item: CollectionListItem }) {
           )}
           {item.rarity ? (
             <span className="meta-pill">{item.rarity}</span>
+          ) : null}
+          {item.printingFinish ? (
+            <span className="meta-pill">{item.printingFinish}</span>
+          ) : null}
+          {item.physicalForm ? (
+            <span className="meta-pill">{item.physicalForm}</span>
           ) : null}
         </div>
       </div>
@@ -433,6 +454,33 @@ export function CollectionBrowser({
                 options={facets.rarities}
                 onChange={(value) => setFilter("rarity", value)}
               />
+              {facets.printingFinishes.length ? (
+                <FilterSelect
+                  id="filter-printing-finish"
+                  label="Published finish"
+                  value={filters.printingFinish}
+                  options={facets.printingFinishes}
+                  onChange={(value) => setFilter("printingFinish", value)}
+                />
+              ) : null}
+              {facets.cardBackDesigns.length ? (
+                <FilterSelect
+                  id="filter-card-back"
+                  label="Card back"
+                  value={filters.cardBackDesign}
+                  options={facets.cardBackDesigns}
+                  onChange={(value) => setFilter("cardBackDesign", value)}
+                />
+              ) : null}
+              {facets.physicalForms.length ? (
+                <FilterSelect
+                  id="filter-physical-form"
+                  label="Physical form"
+                  value={filters.physicalForm}
+                  options={facets.physicalForms}
+                  onChange={(value) => setFilter("physicalForm", value)}
+                />
+              ) : null}
               {facets.finishVariants.length ? (
                 <FilterSelect
                   id="filter-variant"

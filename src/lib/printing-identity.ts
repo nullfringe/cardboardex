@@ -31,9 +31,31 @@ export type PrintingIdentityInput = {
   name: string;
   collectorNumber: string | null;
   printingVariantKey: string;
+  printingFinish?: string | null;
+  physicalForm?: string | null;
+  cardBackDesign?: string | null;
   catalogProvider?: string | null;
+  catalogSetId?: string | null;
   catalogCardId?: string | null;
+  componentGroupKey?: string | null;
+  componentKey?: string | null;
 };
+
+function identitySuffix(input: PrintingIdentityInput): string {
+  const values = [
+    ["finish", input.printingFinish],
+    ["form", input.physicalForm],
+    ["back", input.cardBackDesign],
+    ["group", input.componentGroupKey],
+    ["component", input.componentKey],
+  ] as const;
+
+  return values.reduce((suffix, [label, value]) => {
+    return value
+      ? `${suffix}:${label}:${encodeURIComponent(normalizeIdentityPart(value))}`
+      : suffix;
+  }, "");
+}
 
 export function stablePrintingIdentityKey(
   input: PrintingIdentityInput,
@@ -45,9 +67,13 @@ export function stablePrintingIdentityKey(
   const catalogCardId = input.catalogCardId
     ? normalizeIdentityPart(input.catalogCardId)
     : null;
+  const catalogSetId = input.catalogSetId
+    ? normalizeIdentityPart(input.catalogSetId)
+    : null;
+  const suffix = identitySuffix(input);
 
-  if (catalogProvider && catalogCardId) {
-    return `catalog:${catalogProvider}:${normalizeIdentityPart(input.languageCode)}:${catalogCardId}:${variant}`;
+  if (catalogProvider && catalogSetId && catalogCardId) {
+    return `catalog:${catalogProvider}:${normalizeIdentityPart(input.languageCode)}:${catalogSetId}:${catalogCardId}:${variant}${suffix}`;
   }
 
   const scope = [
@@ -58,6 +84,6 @@ export function stablePrintingIdentityKey(
   const collectorKey = collectorIdentifierKey(input.collectorNumber);
 
   return collectorKey
-    ? `published:${scope}:${collectorKey}:${variant}`
-    : `manual:${scope}:${normalizeIdentityPart(input.name)}:${variant}`;
+    ? `published:${scope}:${collectorKey}:${variant}${suffix}`
+    : `manual:${scope}:${normalizeIdentityPart(input.name)}:${variant}${suffix}`;
 }

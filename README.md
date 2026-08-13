@@ -62,23 +62,29 @@ Pushes and pull requests targeting `main` are validated by GitHub Actions using 
 
 ## Data model
 
-A **Profile** identifies the local owner of a collection. A **CardPrinting** is a global published identity: game, language-aware release, optional printed collector identifier, printing variant, printed rules, and optional game-specific details. An **OwnedCard** connects one profile to a printing and stores quantity, condition, finish, sealed state, and personal notes. Different profiles can own the same canonical printing with completely independent ownership facts. Publishing differences such as Base Set Unlimited, Shadowless, 1st Edition, and provider-confirmed Japanese no-rarity variants belong to the printing identity rather than the ownership finish text.
+A **Profile** identifies whose local collection it is. A **CardPrinting** is a global published identity: game, language-aware release, optional primary collector identifier, printing variant, published finish/treatment, card-back design, physical form, printed rules, semantic printed identifiers, optional component-group membership, and optional game-specific details. An **OwnedCard** connects one profile to a printing and stores one ownership lot's quantity, condition, sealed state, personal notes, legacy free-text finish note, and photo/import provenance. Different profiles can own the same canonical printing with completely independent ownership facts. Publishing differences such as Base Set Unlimited, Shadowless, 1st Edition, holo treatment, oversize form, and provider-confirmed Japanese no-rarity variants belong to the printing identity rather than the ownership finish text.
+
+More than one OwnedCard may point from the same profile to the same CardPrinting. This intentionally represents condition lots without inventing printings—for example, three Near Mint copies and two Moderately Played copies are two ownership rows totaling five physical cards. Separate physical components in a published multi-card object remain independently ownable CardPrintings; a generic group records their component keys and optional expected count without modeling game rules.
 
 The human-facing collector identifier is deliberately separate from the deterministic internal identity. A provider-backed printing uses its exact catalog identity, language, and variant; a numbered printing uses game, release, language, normalized published identifier, and variant; and an unnumbered manual printing falls back to those scoped release facts plus its normalized printed name. Card names alone are never a global identity. This allows a historical card with no printed set number to remain `null` rather than receiving a fabricated value.
 
 The normalized schema contains:
 
 - games and language-aware card sets, with optional catalog provenance;
-- card printings, with a stable internal identity, optional published collector identifier, language, variant discriminator, and optional catalog provenance;
+- card printings, with a stable internal identity, optional published collector identifier, language, variant discriminator, finish/treatment, card-back design, physical form, and optional catalog provenance;
+- generic semantic identifiers visibly printed on a card, kept separate from both collector numbers and catalog-local IDs;
+- optional generic printing groups whose components remain separate CardPrintings;
 - optional Pokémon details;
 - ordered, structured attack rows with cost, damage, and effect;
 - profiles containing only local owner identity;
-- profile-scoped owned cards containing only collection-specific facts; and
+- profile-scoped owned-card lots containing quantity, condition, personal facts, and optional photo filenames/batch positions; and
 - profile-scoped import provenance retaining every original CSV field and a source hash.
 
 The seed fixture lives at [`data/seed/collection.csv`](data/seed/collection.csv). Its importer handles the UTF-8 BOM, quoted fields, NFC-normalized Unicode text, blanks, numeric validation, overloaded variant data, and transactional/idempotent writes. The fixture currently derives to 69 collection entries and 72 physical cards; tests assert those fixture acceptance totals rather than embedding them in application logic.
 
-The original 33-column CSV format remains valid and defaults to English. Import files may append, in order, `Language`, `English Name`, `Catalog Provider`, `Catalog Set ID`, `Catalog Card ID`, and `Printing Variant`. `Language` accepts normalized codes such as `en` and `ja`; `English Name` is an optional searchable alias that does not replace the printed name. The three catalog fields are optional as a group. `Collector No.` may contain a non-numeric published identifier or be blank when the physical card is unnumbered.
+The original 33-column CSV format remains valid and defaults to English. Import files may append optional columns in this order: `Language`, `English Name`, `Catalog Provider`, `Catalog Set ID`, `Catalog Card ID`, `Printing Variant`, `Card Back Design`, `Printing Finish`, `Physical Form`, `Printed Identifiers`, `Component Group Key`, `Component Group Type`, `Component Group Name`, `Expected Component Count`, `Component Key`, `Photo Batch`, `Grid Position`, `Front Photo`, and `Back Photo`. Optional columns form a compatible prefix, so existing six-column international extensions remain valid. `Language` accepts normalized codes such as `en`, `ja`, and other two-letter language/region forms; `English Name` is an optional searchable alias that does not replace the printed name. The three catalog fields are optional as a group. `Collector No.` may contain a non-numeric published identifier or be blank when the physical card is unnumbered. Additional identifiers use semicolon-separated `role: value` entries, such as `species/pokedex-number: No.004`, and never manufacture a collector number. Photo values are audit-friendly source identifiers or filenames; Cardboardex does not require those files to exist at runtime.
+
+Catalog provider/set/card identity is optional enrichment, never a prerequisite for a legitimate locally cataloged printing. Adding a compatible exact catalog identity reconciles the existing CardPrinting in place so ownership, attacks, Pokémon details, artwork, and provenance remain attached. Conflicting identities fail transactionally rather than guessing equivalence from a card name.
 
 The checked-in CSV is intentionally public development data. Do not add future private ownership information—such as purchase history, prices paid, storage locations, addresses, identifying information, or private notes—without first moving that data to local-only storage.
 
@@ -132,6 +138,8 @@ The MVP edits ownership facts without exposing published printing facts to accid
 ### Future work
 
 Likely next iterations include a provider-backed card metadata/image lookup, offline/PWA caching, richer import/export, storage locations, deck building with owned-quantity validation, and price history. Accounts, cloud sync, scanning, and multi-user support remain outside this MVP.
+
+Future valuation should be modeled as observations rather than one timeless value on CardPrinting or OwnedCard. A later pricing boundary should retain the source, currency, as-of timestamp, exact printing, applicable condition/grade, and any low/mid/high or confidence range. This branch deliberately adds no pricing tables, providers, market API calls, or current-value fields.
 
 ## License
 

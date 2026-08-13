@@ -14,9 +14,13 @@ import {
   importRecords,
   ownedCards,
   pokemonDetails,
+  printingGroupMembers,
+  printingGroups,
+  printingIdentifiers,
   profiles,
 } from "@/db/schema";
 import {
+  COLLECTION_CSV_OPTIONAL_HEADERS,
   CollectionCsvError,
   importCollectionCsv,
   parseCollectionCsv,
@@ -32,6 +36,43 @@ const japaneseFixture = fs.readFileSync(
 );
 const abraCollectorSource =
   "https://bulbapedia.bulbagarden.net/wiki/Abra_(Base_Set_43)";
+
+const catalogingHeaders = COLLECTION_CSV_OPTIONAL_HEADERS.slice(6);
+
+function csvCell(value: string): string {
+  return `"${value.replaceAll('"', '""')}"`;
+}
+
+function catalogingFixture(): string {
+  const [header, firstRow, ...remainingRows] = japaneseFixture
+    .toString("utf8")
+    .trimEnd()
+    .split("\n");
+  const firstValues = [
+    "Pocket Monsters Card Game",
+    "regular non-holo",
+    "standard",
+    "species/pokedex-number: No.025; promo/release-identifier: JP-01",
+    "starter-panorama",
+    "multi-card-artwork",
+    "Starter Panorama",
+    "2",
+    "top",
+    "batch-1996-01",
+    "A1",
+    "IMG_0001-front.jpg",
+    "IMG_0001-back.jpg",
+  ];
+  const blankValues = catalogingHeaders.map(() => "");
+
+  return [
+    `${header},${catalogingHeaders.map(csvCell).join(",")}`,
+    `${firstRow},${firstValues.map(csvCell).join(",")}`,
+    ...remainingRows.map(
+      (row) => `${row},${blankValues.map(csvCell).join(",")}`,
+    ),
+  ].join("\n");
+}
 
 function requiredResult<T>(value: T | undefined, description: string): T {
   if (value === undefined) {
@@ -146,6 +187,32 @@ describe("collection CSV parsing", () => {
         finishVariant: "regular non-holo",
       },
     ]);
+  });
+
+  it("accepts explicit cataloging and photo-provenance columns", () => {
+    expect(parseCollectionCsv(catalogingFixture())[0]).toMatchObject({
+      name: "ピカチュウ",
+      collectorNumber: null,
+      cardBackDesign: "Pocket Monsters Card Game",
+      printingFinish: "regular non-holo",
+      physicalForm: "standard",
+      printedIdentifiers: [
+        { role: "species/pokedex-number", value: "No.025" },
+        { role: "promo/release-identifier", value: "JP-01" },
+      ],
+      componentGroup: {
+        groupKey: "starter-panorama",
+        groupType: "multi-card-artwork",
+        name: "Starter Panorama",
+        expectedComponentCount: 2,
+        componentKey: "top",
+      },
+      finishVariant: "regular non-holo",
+      photoBatch: "batch-1996-01",
+      gridPosition: "A1",
+      frontPhoto: "IMG_0001-front.jpg",
+      backPhoto: "IMG_0001-back.jpg",
+    });
   });
 
   it("preserves non-numeric published identifiers without treating embedded digits as a sort number", () => {
@@ -596,5 +663,154 @@ describe("collection import", () => {
         .where(eq(importRecords.profileId, secondProfile.id))
         .get(),
     ).toEqual({ count: 2 });
+  });
+
+  it("reconciles later exact catalog identity without duplicating imported printings", () => {
+    const localOnly = japaneseFixture
+      .toString("utf8")
+      .replace(
+        "ja,Pikachu,tcgdex,PMCG1,PMCG1-035,standard",
+        "ja,Pikachu,,,,standard",
+      )
+      .replace(
+        "ja,Abra,tcgdex,PMCG1,PMCG1-043,no-rarity",
+        "ja,Abra,,,,no-rarity",
+      );
+    const options = {
+      profileId,
+      sourceKey: "tests/fixtures/catalog-enrichment.csv",
+    };
+
+    importCollectionCsv(connection.db, localOnly, options);
+    const before = connection.db
+      .select({
+        id: cardPrintings.id,
+        stableIdentityKey: cardPrintings.stableIdentityKey,
+        catalogExternalId: cardPrintings.catalogExternalId,
+      })
+      .from(cardPrintings)
+      .orderBy(cardPrintings.id)
+      .all();
+    const ownedBefore = connection.db
+      .select({ id: ownedCards.id, printingId: ownedCards.printingId })
+      .from(ownedCards)
+      .orderBy(ownedCards.id)
+      .all();
+
+    importCollectionCsv(connection.db, japaneseFixture, options);
+
+    const enriched = connection.db
+      .select({
+        id: cardPrintings.id,
+        stableIdentityKey: cardPrintings.stableIdentityKey,
+        catalogExternalId: cardPrintings.catalogExternalId,
+      })
+      .from(cardPrintings)
+      .orderBy(cardPrintings.id)
+      .all();
+    expect(enriched).toEqual([
+      {
+        id: before[0]?.id,
+        stableIdentityKey: "catalog:tcgdex:ja:pmcg1:pmcg1-035:standard",
+        catalogExternalId: "PMCG1-035",
+      },
+      {
+        id: before[1]?.id,
+        stableIdentityKey: "catalog:tcgdex:ja:pmcg1:pmcg1-043:no-rarity",
+        catalogExternalId: "PMCG1-043",
+      },
+    ]);
+    expect(
+      connection.db
+        .select({ id: ownedCards.id, printingId: ownedCards.printingId })
+        .from(ownedCards)
+        .orderBy(ownedCards.id)
+        .all(),
+    ).toEqual(ownedBefore);
+    expect(connection.db.select().from(cardPrintings).all()).toHaveLength(2);
+    expect(connection.db.select().from(pokemonDetails).all()).toHaveLength(2);
+    expect(connection.db.select().from(attacks).all()).toHaveLength(2);
+
+    const beforeConflict = connection.db.select().from(cardPrintings).all();
+    const conflicting = japaneseFixture
+      .toString("utf8")
+      .replaceAll("PMCG1-035", "PMCG1-999");
+    expect(() =>
+      importCollectionCsv(connection.db, conflicting, options),
+    ).toThrow(/conflicts with existing printing catalog identity/u);
+    expect(connection.db.select().from(cardPrintings).all()).toEqual(
+      beforeConflict,
+    );
+    expect(
+      connection.db
+        .select({ id: ownedCards.id, printingId: ownedCards.printingId })
+        .from(ownedCards)
+        .orderBy(ownedCards.id)
+        .all(),
+    ).toEqual(ownedBefore);
+  });
+
+  it("imports optional photo provenance and printing catalog data idempotently", () => {
+    const input = catalogingFixture();
+    const options = {
+      profileId,
+      sourceKey: "photo-batches/batch-1996-01.csv",
+    };
+
+    const first = importCollectionCsv(connection.db, input, options);
+    const ownedIdsBefore = connection.db
+      .select({ id: ownedCards.id })
+      .from(ownedCards)
+      .orderBy(ownedCards.id)
+      .all();
+    const second = importCollectionCsv(connection.db, input, options);
+    const detail = createCollectionService(connection.db)
+      .listCollection("my-collection")
+      .find((entry) => entry.name === "ピカチュウ");
+
+    expect(first).toMatchObject({ collectionEntries: 2, physicalCards: 2 });
+    expect(second).toMatchObject({ collectionEntries: 2, physicalCards: 2 });
+    expect(
+      connection.db
+        .select({ id: ownedCards.id })
+        .from(ownedCards)
+        .orderBy(ownedCards.id)
+        .all(),
+    ).toEqual(ownedIdsBefore);
+    expect(detail).toBeDefined();
+    expect(
+      createCollectionService(connection.db).getCollectionEntry(
+        "my-collection",
+        detail!.ownedCardId,
+      ),
+    ).toMatchObject({
+      collectorNumber: null,
+      cardBackDesign: "Pocket Monsters Card Game",
+      printingFinish: "regular non-holo",
+      physicalForm: "standard",
+      photoBatch: "batch-1996-01",
+      gridPosition: "A1",
+      frontPhoto: "IMG_0001-front.jpg",
+      backPhoto: "IMG_0001-back.jpg",
+      printedIdentifiers: [
+        { role: "species/pokedex-number", value: "No.025" },
+        { role: "promo/release-identifier", value: "JP-01" },
+      ],
+      printingGroups: [
+        {
+          groupKey: "starter-panorama",
+          groupType: "multi-card-artwork",
+          expectedComponentCount: 2,
+          componentKey: "top",
+        },
+      ],
+    });
+    expect(connection.db.select().from(printingIdentifiers).all()).toHaveLength(
+      2,
+    );
+    expect(connection.db.select().from(printingGroups).all()).toHaveLength(1);
+    expect(
+      connection.db.select().from(printingGroupMembers).all(),
+    ).toHaveLength(1);
   });
 });

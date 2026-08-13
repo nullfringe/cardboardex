@@ -5,6 +5,7 @@ import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { type FormEvent, useMemo, useState } from "react";
 
+import { parsePrintedIdentifiers } from "@/lib/printed-identifiers";
 import type {
   CreateAttackInput,
   CreateCollectionEntryInput,
@@ -101,44 +102,70 @@ export function CreateCardForm({ profile }: { profile: Profile }) {
     setSubmitting(true);
     setErrorMessage(null);
 
-    const formData = new FormData(event.currentTarget);
-    const gameName = requiredString(formData, "gameName");
-    const payload: CreateCollectionEntryInput = {
-      gameName,
-      gameSlug: slugify(gameName),
-      setName: requiredString(formData, "setName"),
-      setCode: requiredString(formData, "setCode"),
-      name: requiredString(formData, "name"),
-      canonicalName: blankToNull(formData.get("canonicalName")),
-      collectorNumber: blankToNull(formData.get("collectorNumber")),
-      languageCode: requiredString(formData, "languageCode"),
-      catalogProvider: blankToNull(formData.get("catalogProvider")),
-      catalogSetId: blankToNull(formData.get("catalogSetId")),
-      catalogCardId: blankToNull(formData.get("catalogCardId")),
-      printingVariantKey: requiredString(formData, "printingVariantKey"),
-      cardKind: requiredString(formData, "cardKind"),
-      subtype: blankToNull(formData.get("subtype")),
-      rarity: blankToNull(formData.get("rarity")),
-      regulationMark: blankToNull(formData.get("regulationMark")),
-      specialRuleBox: blankToNull(formData.get("specialRuleBox")),
-      abilityRule: blankToNull(formData.get("abilityRule")),
-      rulesText: blankToNull(formData.get("rulesText")),
-      pokemonType: blankToNull(formData.get("pokemonType")),
-      hp: optionalInteger(formData, "hp"),
-      evolvesFrom: blankToNull(formData.get("evolvesFrom")),
-      weakness: blankToNull(formData.get("weakness")),
-      resistance: blankToNull(formData.get("resistance")),
-      retreatCost: optionalInteger(formData, "retreatCost"),
-      attacks: normalizedAttacks,
-      quantity: Number(requiredString(formData, "quantity")),
-      condition: blankToNull(formData.get("condition")),
-      finishVariant: blankToNull(formData.get("finishVariant")),
-      sealed: formData.get("sealed") === "on",
-      notes: blankToNull(formData.get("notes")),
-      externalReferenceUrl: blankToNull(formData.get("externalReferenceUrl")),
-    };
-
     try {
+      const formData = new FormData(event.currentTarget);
+      const gameName = requiredString(formData, "gameName");
+      const groupKey = blankToNull(formData.get("componentGroupKey"));
+      const groupType = blankToNull(formData.get("componentGroupType"));
+      const componentKey = blankToNull(formData.get("componentKey"));
+      const hasComponentGroup = Boolean(groupKey || groupType || componentKey);
+      const payload: CreateCollectionEntryInput = {
+        gameName,
+        gameSlug: slugify(gameName),
+        setName: requiredString(formData, "setName"),
+        setCode: requiredString(formData, "setCode"),
+        name: requiredString(formData, "name"),
+        canonicalName: blankToNull(formData.get("canonicalName")),
+        collectorNumber: blankToNull(formData.get("collectorNumber")),
+        languageCode: requiredString(formData, "languageCode"),
+        catalogProvider: blankToNull(formData.get("catalogProvider")),
+        catalogSetId: blankToNull(formData.get("catalogSetId")),
+        catalogCardId: blankToNull(formData.get("catalogCardId")),
+        cardBackDesign: blankToNull(formData.get("cardBackDesign")),
+        printingFinish: blankToNull(formData.get("printingFinish")),
+        physicalForm: blankToNull(formData.get("physicalForm")),
+        printedIdentifiers: parsePrintedIdentifiers(
+          blankToNull(formData.get("printedIdentifiers")),
+        ),
+        componentGroup: hasComponentGroup
+          ? {
+              groupKey: groupKey ?? "",
+              groupType: groupType ?? "",
+              name: blankToNull(formData.get("componentGroupName")),
+              expectedComponentCount: optionalInteger(
+                formData,
+                "expectedComponentCount",
+              ),
+              componentKey: componentKey ?? "",
+            }
+          : null,
+        printingVariantKey: requiredString(formData, "printingVariantKey"),
+        cardKind: requiredString(formData, "cardKind"),
+        subtype: blankToNull(formData.get("subtype")),
+        rarity: blankToNull(formData.get("rarity")),
+        regulationMark: blankToNull(formData.get("regulationMark")),
+        specialRuleBox: blankToNull(formData.get("specialRuleBox")),
+        abilityRule: blankToNull(formData.get("abilityRule")),
+        rulesText: blankToNull(formData.get("rulesText")),
+        pokemonType: blankToNull(formData.get("pokemonType")),
+        hp: optionalInteger(formData, "hp"),
+        evolvesFrom: blankToNull(formData.get("evolvesFrom")),
+        weakness: blankToNull(formData.get("weakness")),
+        resistance: blankToNull(formData.get("resistance")),
+        retreatCost: optionalInteger(formData, "retreatCost"),
+        attacks: normalizedAttacks,
+        quantity: Number(requiredString(formData, "quantity")),
+        condition: blankToNull(formData.get("condition")),
+        finishVariant: blankToNull(formData.get("finishVariant")),
+        sealed: formData.get("sealed") === "on",
+        notes: blankToNull(formData.get("notes")),
+        photoBatch: blankToNull(formData.get("photoBatch")),
+        gridPosition: blankToNull(formData.get("gridPosition")),
+        frontPhoto: blankToNull(formData.get("frontPhoto")),
+        backPhoto: blankToNull(formData.get("backPhoto")),
+        externalReferenceUrl: blankToNull(formData.get("externalReferenceUrl")),
+      };
+
       const response = await fetch(
         `/api/collection?profile=${encodeURIComponent(profile.slug)}`,
         {
@@ -268,10 +295,20 @@ export function CreateCardForm({ profile }: { profile: Profile }) {
               </label>
               <label className="field">
                 <span className="field__label">Language *</span>
-                <select defaultValue="en" name="languageCode" required>
+                <input
+                  defaultValue="en"
+                  list="language-codes"
+                  name="languageCode"
+                  pattern="[A-Za-z]{2}(-[A-Za-z]{2})?"
+                  required
+                />
+                <datalist id="language-codes">
                   <option value="en">English</option>
                   <option value="ja">Japanese</option>
-                </select>
+                </datalist>
+                <small className="field__help">
+                  Use a normalized code such as en, ja, fr, or pt-br.
+                </small>
               </label>
               <label className="field">
                 <span className="field__label">Printing variant *</span>
@@ -302,7 +339,90 @@ export function CreateCardForm({ profile }: { profile: Profile }) {
                 <span className="field__label">Regulation mark</span>
                 <input name="regulationMark" />
               </label>
+              <label className="field">
+                <span className="field__label">Published finish</span>
+                <input
+                  list="printing-finishes"
+                  name="printingFinish"
+                  placeholder="regular, holo, reverse holo…"
+                />
+                <datalist id="printing-finishes">
+                  <option value="regular non-holo" />
+                  <option value="holo" />
+                  <option value="reverse holo" />
+                  <option value="stamped promotional foil" />
+                </datalist>
+              </label>
+              <label className="field">
+                <span className="field__label">Card-back design</span>
+                <input
+                  list="card-back-designs"
+                  name="cardBackDesign"
+                  placeholder="Leave blank when unknown"
+                />
+                <datalist id="card-back-designs">
+                  <option value="international Pokémon" />
+                  <option value="Pocket Monsters Card Game" />
+                </datalist>
+              </label>
+              <label className="field">
+                <span className="field__label">Physical form</span>
+                <input
+                  list="physical-forms"
+                  name="physicalForm"
+                  placeholder="standard, oversize…"
+                />
+                <datalist id="physical-forms">
+                  <option value="standard" />
+                  <option value="oversize" />
+                </datalist>
+              </label>
+              <label className="field field--wide">
+                <span className="field__label">
+                  Additional printed identifiers
+                </span>
+                <textarea
+                  name="printedIdentifiers"
+                  placeholder={
+                    "species/pokedex-number: No.004\npromo/release-identifier: XY01"
+                  }
+                />
+                <small className="field__help">
+                  One role: value pair per line. These remain distinct from the
+                  collector identifier and catalog IDs.
+                </small>
+              </label>
             </div>
+            <details className="form-section form-section--details">
+              <summary>Multi-card component</summary>
+              <div className="form-grid form-grid--three">
+                <label className="field">
+                  <span className="field__label">Group key</span>
+                  <input name="componentGroupKey" placeholder="e.g. legend-1" />
+                </label>
+                <label className="field">
+                  <span className="field__label">Group type</span>
+                  <input name="componentGroupType" placeholder="multi-card" />
+                </label>
+                <label className="field">
+                  <span className="field__label">Component key</span>
+                  <input name="componentKey" placeholder="top, bottom, 1…" />
+                </label>
+                <label className="field">
+                  <span className="field__label">Group name</span>
+                  <input name="componentGroupName" />
+                </label>
+                <label className="field">
+                  <span className="field__label">Expected components</span>
+                  <input
+                    min="1"
+                    name="expectedComponentCount"
+                    step="1"
+                    type="number"
+                  />
+                </label>
+              </div>
+            </details>
           </section>
 
           <section
@@ -502,10 +622,10 @@ export function CreateCardForm({ profile }: { profile: Profile }) {
                 <input name="condition" placeholder="Unknown" />
               </label>
               <label className="field">
-                <span className="field__label">Finish / variant</span>
+                <span className="field__label">Owned-lot finish note</span>
                 <input
                   name="finishVariant"
-                  placeholder="Regular, holo, promo…"
+                  placeholder="Legacy/free-text copy note"
                 />
               </label>
             </div>
@@ -525,6 +645,24 @@ export function CreateCardForm({ profile }: { profile: Profile }) {
               <span className="field__label">Personal notes</span>
               <textarea name="notes" />
             </label>
+            <div className="form-grid form-grid--two-even">
+              <label className="field">
+                <span className="field__label">Photo batch</span>
+                <input name="photoBatch" placeholder="batch-2026-08-13" />
+              </label>
+              <label className="field">
+                <span className="field__label">Grid position</span>
+                <input name="gridPosition" placeholder="B3" />
+              </label>
+              <label className="field">
+                <span className="field__label">Front photo</span>
+                <input name="frontPhoto" placeholder="front-001.jpg" />
+              </label>
+              <label className="field">
+                <span className="field__label">Back photo</span>
+                <input name="backPhoto" placeholder="back-001.jpg" />
+              </label>
+            </div>
           </section>
 
           <details className="form-section form-section--details">

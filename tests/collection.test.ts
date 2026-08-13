@@ -3,7 +3,17 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 import { createDatabaseConnection, type DatabaseConnection } from "@/db/client";
 import { runMigrations } from "@/db/migrate";
-import { cardPrintings, cardSets, games, ownedCards } from "@/db/schema";
+import {
+  attacks,
+  cardPrintings,
+  cardSets,
+  games,
+  ownedCards,
+  pokemonDetails,
+  printingGroupMembers,
+  printingGroups,
+  printingIdentifiers,
+} from "@/db/schema";
 import {
   createCollectionService,
   type CollectionService,
@@ -424,7 +434,7 @@ describe("collection service", () => {
     expect(duplicateOwnership.printingId).toBe(japanese.printingId);
     expect(duplicateOwnership.ownedCardId).not.toBe(japanese.ownedCardId);
     expect(japanese.stableIdentityKey).toBe(
-      "catalog:tcgdex:ja:pmcg1-043:no-rarity",
+      "catalog:tcgdex:ja:pmcg1:pmcg1-043:no-rarity",
     );
     expect(
       service
@@ -552,6 +562,264 @@ describe("collection service", () => {
     ).toMatchObject({
       imageUrl: "https://images.example.com/existing-card.png",
     });
+  });
+
+  it("models published back, finish, and physical form without requiring them", () => {
+    const shared = cardInput({
+      setCode: "CAT",
+      setName: "Cataloging Test",
+      name: "Variant Card",
+      collectorNumber: "001/010",
+    });
+    const earlyBack = service.createCollectionEntry(profileSlug, {
+      ...shared,
+      cardBackDesign: "Pocket Monsters Card Game",
+      printingFinish: "regular non-holo",
+      physicalForm: "standard",
+    });
+    const internationalBack = service.createCollectionEntry(profileSlug, {
+      ...shared,
+      cardBackDesign: "international Pokémon",
+      printingFinish: "regular non-holo",
+      physicalForm: "standard",
+    });
+    const holo = service.createCollectionEntry(profileSlug, {
+      ...shared,
+      cardBackDesign: "Pocket Monsters Card Game",
+      printingFinish: "holo",
+      physicalForm: "standard",
+    });
+    const oversize = service.createCollectionEntry(profileSlug, {
+      ...shared,
+      cardBackDesign: "Pocket Monsters Card Game",
+      printingFinish: "regular non-holo",
+      physicalForm: "oversize",
+    });
+    const unknownBack = service.createCollectionEntry(
+      profileSlug,
+      cardInput({
+        setCode: "CAT",
+        setName: "Cataloging Test",
+        name: "Blank Back Is Valid",
+        collectorNumber: "002/010",
+      }),
+    );
+
+    expect(
+      new Set([
+        earlyBack.printingId,
+        internationalBack.printingId,
+        holo.printingId,
+        oversize.printingId,
+      ]).size,
+    ).toBe(4);
+    expect(unknownBack.cardBackDesign).toBeNull();
+    expect(
+      service.listCollection(profileSlug, {
+        cardBackDesign: "Pocket Monsters Card Game",
+      }),
+    ).toHaveLength(3);
+    expect(
+      service.listCollection(profileSlug, { printingFinish: "holo" }),
+    ).toMatchObject([{ ownedCardId: holo.ownedCardId }]);
+    expect(
+      service.listCollection(profileSlug, { physicalForm: "oversize" }),
+    ).toMatchObject([{ ownedCardId: oversize.ownedCardId }]);
+    expect(service.getCollectionFacets(profileSlug)).toMatchObject({
+      printingFinishes: expect.arrayContaining([
+        { value: "holo", label: "holo", count: 1 },
+      ]),
+      physicalForms: expect.arrayContaining([
+        { value: "oversize", label: "oversize", count: 1 },
+      ]),
+    });
+  });
+
+  it("stores semantic printed identifiers without fabricating a collector number", () => {
+    const created = service.createCollectionEntry(
+      profileSlug,
+      cardInput({
+        setCode: "JP-PMCG1",
+        setName: "拡張パック",
+        name: "ヒトカゲ",
+        canonicalName: "Charmander",
+        collectorNumber: null,
+        languageCode: "ja",
+        printedIdentifiers: [
+          {
+            role: "species/pokedex-number",
+            value: "No.004",
+            label: "Pokédex number",
+          },
+        ],
+      }),
+    );
+
+    expect(created.collectorNumber).toBeNull();
+    expect(created.printedIdentifiers).toEqual([
+      {
+        id: expect.any(Number),
+        role: "species/pokedex-number",
+        value: "No.004",
+        label: "Pokédex number",
+      },
+    ]);
+    expect(
+      service.listCollection(profileSlug, { search: "No.004" }),
+    ).toHaveLength(1);
+    expect(connection.db.select().from(printingIdentifiers).all()).toHaveLength(
+      1,
+    );
+  });
+
+  it("keeps generic multi-card components independently ownable", () => {
+    const component = cardInput({
+      setCode: "CMP",
+      setName: "Component Set",
+      name: "Combined Card",
+      collectorNumber: null,
+    });
+    const top = service.createCollectionEntry(profileSlug, {
+      ...component,
+      quantity: 1,
+      componentGroup: {
+        groupKey: "combined-card",
+        groupType: "multi-card-artwork",
+        name: "Combined Card",
+        expectedComponentCount: 2,
+        componentKey: "top",
+      },
+    });
+    const bottom = service.createCollectionEntry(profileSlug, {
+      ...component,
+      quantity: 2,
+      componentGroup: {
+        groupKey: "combined-card",
+        groupType: "multi-card-artwork",
+        name: "Combined Card",
+        expectedComponentCount: 2,
+        componentKey: "bottom",
+      },
+    });
+
+    expect(bottom.printingId).not.toBe(top.printingId);
+    expect(top.printingGroups).toMatchObject([
+      { groupKey: "combined-card", componentKey: "top" },
+    ]);
+    expect(bottom.printingGroups).toMatchObject([
+      { groupKey: "combined-card", componentKey: "bottom" },
+    ]);
+    expect(connection.db.select().from(printingGroups).all()).toHaveLength(1);
+    expect(
+      connection.db.select().from(printingGroupMembers).all(),
+    ).toHaveLength(2);
+    expect(
+      service
+        .listCollection(profileSlug)
+        .reduce((total, entry) => total + entry.quantity, 0),
+    ).toBe(3);
+  });
+
+  it("reconciles compatible catalog enrichment in place and rejects conflicts atomically", () => {
+    const localInput = cardInput({
+      setCode: "ENR",
+      setName: "Enrichment Set",
+      name: "Enrichment Card",
+      collectorNumber: "007/100",
+      imageProvider: "fixture",
+      imageExternalId: "enrichment-card",
+      imageUrl: "https://images.example.com/enrichment-card.png",
+      pokemonType: "Psychic",
+      hp: 70,
+      attacks: [{ name: "Remember", cost: ["P"], damage: "20" }],
+    });
+    const local = service.createCollectionEntry(profileSlug, localInput);
+    const originalPrinting = connection.db
+      .select()
+      .from(cardPrintings)
+      .where(eq(cardPrintings.id, local.printingId))
+      .get();
+    const enriched = service.createCollectionEntry(profileSlug, {
+      ...localInput,
+      condition: "Near Mint",
+      catalogProvider: "test-catalog",
+      catalogSetId: "enrichment-set",
+      catalogCardId: "enrichment-card-007",
+      cardBackDesign: "international Pokémon",
+    });
+
+    expect(enriched.printingId).toBe(local.printingId);
+    expect(enriched.stableIdentityKey).toBe(
+      "catalog:test-catalog:en:enrichment-set:enrichment-card-007:standard:back:international%20pok%C3%A9mon",
+    );
+    expect(enriched).toMatchObject({
+      catalogProvider: "test-catalog",
+      catalogExternalId: "enrichment-card-007",
+      imageUrl: "https://images.example.com/enrichment-card.png",
+      cardBackDesign: "international Pokémon",
+    });
+    expect(connection.db.select().from(cardPrintings).all()).toHaveLength(1);
+    expect(connection.db.select().from(ownedCards).all()).toHaveLength(2);
+    expect(connection.db.select().from(pokemonDetails).all()).toHaveLength(1);
+    expect(connection.db.select().from(attacks).all()).toHaveLength(1);
+    expect(
+      connection.db
+        .select({ createdAt: cardPrintings.createdAt })
+        .from(cardPrintings)
+        .where(eq(cardPrintings.id, local.printingId))
+        .get()?.createdAt,
+    ).toBe(originalPrinting?.createdAt);
+
+    const beforeConflict = connection.db
+      .select()
+      .from(cardPrintings)
+      .where(eq(cardPrintings.id, local.printingId))
+      .get();
+    expect(() =>
+      service.createCollectionEntry(profileSlug, {
+        ...localInput,
+        catalogProvider: "test-catalog",
+        catalogSetId: "enrichment-set",
+        catalogCardId: "conflicting-card-999",
+        cardBackDesign: "international Pokémon",
+      }),
+    ).toThrow(/already linked to catalog identity/u);
+    expect(
+      connection.db
+        .select()
+        .from(cardPrintings)
+        .where(eq(cardPrintings.id, local.printingId))
+        .get(),
+    ).toEqual(beforeConflict);
+    expect(connection.db.select().from(ownedCards).all()).toHaveLength(2);
+  });
+
+  it("supports multiple condition lots for one printing", () => {
+    const printing = cardInput({
+      setCode: "LOT",
+      setName: "Condition Lots",
+      name: "Lot Card",
+      collectorNumber: "010/100",
+    });
+    const nearMint = service.createCollectionEntry(profileSlug, {
+      ...printing,
+      quantity: 3,
+      condition: "Near Mint",
+    });
+    const moderatelyPlayed = service.createCollectionEntry(profileSlug, {
+      ...printing,
+      quantity: 2,
+      condition: "Moderately Played",
+    });
+
+    expect(moderatelyPlayed.printingId).toBe(nearMint.printingId);
+    expect(moderatelyPlayed.ownedCardId).not.toBe(nearMint.ownedCardId);
+    expect(service.listCollection(profileSlug)).toMatchObject([
+      { quantity: 3, condition: "Near Mint" },
+      { quantity: 2, condition: "Moderately Played" },
+    ]);
+    expect(connection.db.select().from(cardPrintings).all()).toHaveLength(1);
+    expect(connection.db.select().from(ownedCards).all()).toHaveLength(2);
   });
 
   it("isolates ownership while sharing one canonical printing between profiles", () => {
