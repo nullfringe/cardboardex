@@ -25,6 +25,7 @@ import {
   importCollectionCsv,
   parseCollectionCsv,
 } from "@/lib/import";
+import { stablePrintingIdentityKey } from "@/lib/printing-identity";
 import { createProfileService } from "@/lib/services/profile-service";
 import { createCollectionService } from "@/lib/services/collection-service";
 
@@ -773,6 +774,7 @@ describe("collection import", () => {
       .select({
         id: cardPrintings.id,
         name: cardPrintings.name,
+        stableIdentityKey: cardPrintings.stableIdentityKey,
         cardBackDesign: cardPrintings.cardBackDesign,
         printingFinish: cardPrintings.printingFinish,
         physicalForm: cardPrintings.physicalForm,
@@ -784,10 +786,30 @@ describe("collection import", () => {
     expect(enriched).toEqual({
       id: printingIdsBefore[0]?.id,
       name: "ピカチュウ",
+      stableIdentityKey:
+        "catalog:tcgdex:ja:pmcg1:pmcg1-035:standard:finish:regular%20non-holo:form:standard:back:pocket%20monsters%20card%20game:group:starter-panorama:component:top",
       cardBackDesign: "Pocket Monsters Card Game",
       printingFinish: "regular non-holo",
       physicalForm: "standard",
     });
+    expect(enriched?.stableIdentityKey).toBe(
+      stablePrintingIdentityKey({
+        gameSlug: "pokemon-tcg",
+        setCode: "JP-PMCG1",
+        languageCode: "ja",
+        name: "ピカチュウ",
+        collectorNumber: null,
+        printingVariantKey: "standard",
+        catalogProvider: "tcgdex",
+        catalogSetId: "PMCG1",
+        catalogCardId: "PMCG1-035",
+        cardBackDesign: enriched?.cardBackDesign,
+        printingFinish: enriched?.printingFinish,
+        physicalForm: enriched?.physicalForm,
+        componentGroupKey: "starter-panorama",
+        componentKey: "top",
+      }),
+    );
     expect(
       connection.db
         .select({ id: ownedCards.id, printingId: ownedCards.printingId })

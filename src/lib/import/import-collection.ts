@@ -1,6 +1,6 @@
 import { createHash } from "node:crypto";
 
-import { and, eq, gt, isNull, sql } from "drizzle-orm";
+import { and, eq, gt, isNull, ne, sql } from "drizzle-orm";
 
 import type { AppDatabase } from "@/db/client";
 import {
@@ -352,7 +352,11 @@ export function importCollectionCsv(
       const exactPrinting = tx
         .select({
           id: cardPrintings.id,
+          name: cardPrintings.name,
+          collectorNumber: cardPrintings.collectorNumber,
           stableIdentityKey: cardPrintings.stableIdentityKey,
+          printingVariantKey: cardPrintings.printingVariantKey,
+          languageCode: cardPrintings.languageCode,
           catalogProvider: cardPrintings.catalogProvider,
           catalogExternalId: cardPrintings.catalogExternalId,
           cardBackDesign: cardPrintings.cardBackDesign,
@@ -362,6 +366,39 @@ export function importCollectionCsv(
         .from(cardPrintings)
         .where(eq(cardPrintings.stableIdentityKey, stableIdentityKey))
         .get();
+      const exactComponent = exactPrinting
+        ? tx
+            .select({
+              groupKey: printingGroups.groupKey,
+              componentKey: printingGroupMembers.componentKey,
+            })
+            .from(printingGroupMembers)
+            .innerJoin(
+              printingGroups,
+              eq(printingGroupMembers.groupId, printingGroups.id),
+            )
+            .where(eq(printingGroupMembers.printingId, exactPrinting.id))
+            .get()
+        : undefined;
+      const hasCanonicalExactPrinting =
+        exactPrinting !== undefined &&
+        exactPrinting.stableIdentityKey ===
+          stablePrintingIdentityKey({
+            gameSlug,
+            setCode: row.setCode,
+            languageCode: exactPrinting.languageCode,
+            name: exactPrinting.name,
+            collectorNumber: exactPrinting.collectorNumber,
+            printingVariantKey: exactPrinting.printingVariantKey,
+            catalogProvider: exactPrinting.catalogProvider,
+            catalogSetId: cardSet.catalogExternalId,
+            catalogCardId: exactPrinting.catalogExternalId,
+            componentGroupKey: exactComponent?.groupKey,
+            componentKey: exactComponent?.componentKey,
+            cardBackDesign: exactPrinting.cardBackDesign,
+            printingFinish: exactPrinting.printingFinish,
+            physicalForm: exactPrinting.physicalForm,
+          });
       const candidateConditions = [
         eq(cardPrintings.setId, cardSet.id),
         eq(cardPrintings.languageCode, row.languageCode),
@@ -408,7 +445,7 @@ export function importCollectionCsv(
         });
       }
       if (
-        exactPrinting &&
+        hasCanonicalExactPrinting &&
         !candidates.some((candidate) => candidate.id === exactPrinting.id)
       ) {
         throw new CollectionCsvError(
@@ -420,7 +457,7 @@ export function importCollectionCsv(
           },
         );
       }
-      if (!exactPrinting && candidates.length > 1) {
+      if (!hasCanonicalExactPrinting && candidates.length > 1) {
         throw new CollectionCsvError(
           "matches multiple local printings; add exact distinguishing facts",
           {
@@ -431,7 +468,7 @@ export function importCollectionCsv(
         );
       }
 
-      let printing = exactPrinting ?? candidates[0];
+      let printing = hasCanonicalExactPrinting ? exactPrinting : candidates[0];
       if (
         printing &&
         row.catalogProvider &&
@@ -495,27 +532,58 @@ export function importCollectionCsv(
           printing,
           row,
         );
-        const catalogEnrichment =
-          row.catalogProvider !== null && printing.catalogProvider === null;
+        const existingComponent = tx
+          .select({
+            groupKey: printingGroups.groupKey,
+            componentKey: printingGroupMembers.componentKey,
+          })
+          .from(printingGroupMembers)
+          .innerJoin(
+            printingGroups,
+            eq(printingGroupMembers.groupId, printingGroups.id),
+          )
+          .where(eq(printingGroupMembers.printingId, printing.id))
+          .get();
+        const reconciledStableIdentityKey = stablePrintingIdentityKey({
+          gameSlug,
+          setCode: row.setCode,
+          languageCode: row.languageCode,
+          name: row.name,
+          collectorNumber: row.collectorNumber,
+          printingVariantKey: row.printingVariantKey,
+          catalogProvider: row.catalogProvider ?? printing.catalogProvider,
+          catalogSetId: row.catalogSetId ?? cardSet.catalogExternalId,
+          catalogCardId: row.catalogCardId ?? printing.catalogExternalId,
+          componentGroupKey:
+            row.componentGroup?.groupKey ?? existingComponent?.groupKey,
+          componentKey:
+            row.componentGroup?.componentKey ?? existingComponent?.componentKey,
+          ...resolvedAttributes,
+        });
+        const keyOwner = tx
+          .select({ id: cardPrintings.id })
+          .from(cardPrintings)
+          .where(
+            and(
+              eq(cardPrintings.stableIdentityKey, reconciledStableIdentityKey),
+              ne(cardPrintings.id, printing.id),
+            ),
+          )
+          .get();
+        if (keyOwner) {
+          throw new CollectionCsvError(
+            "canonical printing identity is already linked to another printing",
+            {
+              rowNumber: row.csvRowNumber,
+              inventoryId: row.inventoryId,
+              field: "Catalog Card ID",
+            },
+          );
+        }
         tx.update(cardPrintings)
           .set({
             ...publishedValues,
-            stableIdentityKey: catalogEnrichment
-              ? stablePrintingIdentityKey({
-                  gameSlug,
-                  setCode: row.setCode,
-                  languageCode: row.languageCode,
-                  name: row.name,
-                  collectorNumber: row.collectorNumber,
-                  printingVariantKey: row.printingVariantKey,
-                  catalogProvider: row.catalogProvider,
-                  catalogSetId: row.catalogSetId,
-                  catalogCardId: row.catalogCardId,
-                  componentGroupKey: row.componentGroup?.groupKey,
-                  componentKey: row.componentGroup?.componentKey,
-                  ...resolvedAttributes,
-                })
-              : printing.stableIdentityKey,
+            stableIdentityKey: reconciledStableIdentityKey,
             catalogProvider:
               row.catalogProvider ?? printing.catalogProvider ?? null,
             catalogExternalId:

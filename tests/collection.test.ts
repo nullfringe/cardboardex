@@ -19,6 +19,7 @@ import {
   type CollectionService,
 } from "@/lib/services/collection-service";
 import { createProfileService } from "@/lib/services/profile-service";
+import { stablePrintingIdentityKey } from "@/lib/printing-identity";
 import type { CreateCollectionEntryInput } from "@/lib/types/collection";
 
 const profileSlug = "my-collection";
@@ -695,6 +696,33 @@ describe("collection service", () => {
       physicalForm: "Standard",
       cardBackDesign: "Ｐｏｋｅｍｏｎ Back",
     });
+    const stored = connection.db
+      .select({
+        stableIdentityKey: cardPrintings.stableIdentityKey,
+        name: cardPrintings.name,
+        collectorNumber: cardPrintings.collectorNumber,
+        printingVariantKey: cardPrintings.printingVariantKey,
+        languageCode: cardPrintings.languageCode,
+        printingFinish: cardPrintings.printingFinish,
+        physicalForm: cardPrintings.physicalForm,
+        cardBackDesign: cardPrintings.cardBackDesign,
+      })
+      .from(cardPrintings)
+      .where(eq(cardPrintings.id, original.printingId))
+      .get();
+    expect(stored?.stableIdentityKey).toBe(
+      stablePrintingIdentityKey({
+        gameSlug: "pokemon-tcg",
+        setCode: "ENR-ATTR",
+        languageCode: stored!.languageCode,
+        name: stored!.name,
+        collectorNumber: stored!.collectorNumber,
+        printingVariantKey: stored!.printingVariantKey,
+        printingFinish: stored!.printingFinish,
+        physicalForm: stored!.physicalForm,
+        cardBackDesign: stored!.cardBackDesign,
+      }),
+    );
     expect(connection.db.select().from(cardPrintings).all()).toHaveLength(1);
     expect(connection.db.select().from(ownedCards).all()).toHaveLength(5);
     expect(connection.db.select().from(pokemonDetails).all()).toHaveLength(1);
@@ -733,7 +761,7 @@ describe("collection service", () => {
     expect(connection.db.select().from(ownedCards).all()).toHaveLength(2);
   });
 
-  it("prefers an exact stable identity over additional relaxed candidates", () => {
+  it("canonicalizes enriched identity keys and rejects ambiguous missing facts", () => {
     const shared = cardInput({
       setCode: "EXACT",
       setName: "Exact Match Set",
@@ -741,7 +769,7 @@ describe("collection service", () => {
       collectorNumber: "005/010",
     });
     const original = service.createCollectionEntry(profileSlug, shared);
-    service.createCollectionEntry(profileSlug, {
+    const holo = service.createCollectionEntry(profileSlug, {
       ...shared,
       printingFinish: "holo",
       physicalForm: "standard",
@@ -752,15 +780,63 @@ describe("collection service", () => {
       physicalForm: "standard",
     });
 
-    const legacyMissingAttributes = service.createCollectionEntry(
-      profileSlug,
-      shared,
-    );
-
     expect(distinct.printingId).not.toBe(original.printingId);
-    expect(legacyMissingAttributes.printingId).toBe(original.printingId);
+    expect(holo.printingId).toBe(original.printingId);
+    expect(holo.stableIdentityKey).toBe(
+      stablePrintingIdentityKey({
+        gameSlug: "pokemon-tcg",
+        setCode: "EXACT",
+        languageCode: "en",
+        name: "Exact Match Card",
+        collectorNumber: "005/010",
+        printingVariantKey: "standard",
+        printingFinish: "holo",
+        physicalForm: "standard",
+      }),
+    );
+    expect(
+      service.getCollectionEntry(profileSlug, original.ownedCardId),
+    ).toMatchObject({ printingId: original.printingId });
+    connection.db
+      .update(cardPrintings)
+      .set({
+        stableIdentityKey: stablePrintingIdentityKey({
+          gameSlug: "pokemon-tcg",
+          setCode: "EXACT",
+          languageCode: "en",
+          name: "Exact Match Card",
+          collectorNumber: "005/010",
+          printingVariantKey: "standard",
+        }),
+      })
+      .where(eq(cardPrintings.id, original.printingId))
+      .run();
+
+    expect(() => service.createCollectionEntry(profileSlug, shared)).toThrow(
+      /multiple compatible local printings/u,
+    );
+    const exactHolo = service.createCollectionEntry(profileSlug, {
+      ...shared,
+      printingFinish: "holo",
+      physicalForm: "standard",
+    });
+    const exactReverse = service.createCollectionEntry(profileSlug, {
+      ...shared,
+      printingFinish: "reverse holo",
+      physicalForm: "standard",
+    });
+
+    expect(exactHolo.printingId).toBe(holo.printingId);
+    expect(exactReverse.printingId).toBe(distinct.printingId);
+    expect(exactHolo.stableIdentityKey).toBe(holo.stableIdentityKey);
+    expect(
+      service.getCollectionEntry(profileSlug, original.ownedCardId),
+    ).toMatchObject({
+      printingId: original.printingId,
+      stableIdentityKey: holo.stableIdentityKey,
+    });
     expect(connection.db.select().from(cardPrintings).all()).toHaveLength(2);
-    expect(connection.db.select().from(ownedCards).all()).toHaveLength(4);
+    expect(connection.db.select().from(ownedCards).all()).toHaveLength(5);
   });
 
   it("rejects partial component-group metadata as controlled validation", () => {
