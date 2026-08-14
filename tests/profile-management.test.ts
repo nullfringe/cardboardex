@@ -13,7 +13,7 @@ import { createCollectionService } from "@/lib/services/collection-service";
 import { createProfileService } from "@/lib/services/profile-service";
 
 const fixture = fs.readFileSync(
-  path.resolve(process.cwd(), "data/seed/collection.csv"),
+  path.resolve(process.cwd(), "tests/fixtures/collection-import.csv"),
 );
 const defaultProfileSlug = "my-collection";
 
@@ -42,7 +42,7 @@ describe("profile management", () => {
     connection.sqlite.close();
   });
 
-  it("duplicates seeded ownership and provenance without duplicating printings", () => {
+  it("duplicates imported ownership and provenance without duplicating printings", () => {
     const profileService = createProfileService(connection.db);
     const collectionService = createCollectionService(connection.db);
     const source = profileService.requireProfile(defaultProfileSlug);
@@ -53,7 +53,7 @@ describe("profile management", () => {
         imageProvider: "fixture",
         imageUrl: "https://images.example/abra",
       })
-      .where(eq(cardPrintings.id, 69))
+      .where(eq(cardPrintings.name, "Abra"))
       .run();
 
     const duplicate = profileService.duplicateProfile(defaultProfileSlug, {
@@ -63,19 +63,19 @@ describe("profile management", () => {
     const duplicateCards = collectionService.listCollection(duplicate.slug);
 
     expect(duplicate.slug).toBe("my-collection-copy");
-    expect(sourceCards).toHaveLength(89);
-    expect(duplicateCards).toHaveLength(89);
-    expect(physicalCards(connection, source.id)).toBe(93);
-    expect(physicalCards(connection, duplicate.id)).toBe(93);
-    expect(connection.db.select().from(cardPrintings).all()).toHaveLength(89);
-    expect(connection.db.select().from(ownedCards).all()).toHaveLength(178);
+    expect(sourceCards).toHaveLength(20);
+    expect(duplicateCards).toHaveLength(20);
+    expect(physicalCards(connection, source.id)).toBe(24);
+    expect(physicalCards(connection, duplicate.id)).toBe(24);
+    expect(connection.db.select().from(cardPrintings).all()).toHaveLength(20);
+    expect(connection.db.select().from(ownedCards).all()).toHaveLength(40);
     expect(
       connection.db
         .select()
         .from(importRecords)
         .where(eq(importRecords.profileId, duplicate.id))
         .all(),
-    ).toHaveLength(89);
+    ).toHaveLength(20);
 
     const sourceAbra = sourceCards.find((card) => card.name === "Abra");
     const duplicateAbra = duplicateCards.find(
@@ -177,7 +177,7 @@ describe("profile management", () => {
         imageProvider: "fixture",
         imageUrl: "https://images.example/abra",
       })
-      .where(eq(cardPrintings.id, 69))
+      .where(eq(cardPrintings.name, "Abra"))
       .run();
     const duplicate = profileService.duplicateProfile(defaultProfileSlug, {
       name: "Ekah",
@@ -205,14 +205,14 @@ describe("profile management", () => {
         .all(),
     ).toEqual([]);
     expect(collectionService.listCollection(defaultProfileSlug)).toHaveLength(
-      89,
+      20,
     );
-    expect(connection.db.select().from(cardPrintings).all()).toHaveLength(89);
+    expect(connection.db.select().from(cardPrintings).all()).toHaveLength(20);
     expect(
       connection.db
         .select({ imageUrl: cardPrintings.imageUrl })
         .from(cardPrintings)
-        .where(eq(cardPrintings.id, 69))
+        .where(eq(cardPrintings.name, "Abra"))
         .get(),
     ).toEqual({ imageUrl: "https://images.example/abra" });
   });

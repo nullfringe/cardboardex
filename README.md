@@ -2,14 +2,14 @@
 
 Cardboardex is a visual, local-first trading card collection manager for organizing and browsing the cards you actually own. Local collection profiles keep different owners' cards independent while sharing published card facts and artwork. The current MVP opens directly into a responsive collection grid and supports card details, search, filters, sorting, ownership edits, removal, and simple manual entry.
 
-The included collection is Pokémon TCG data, but the core printing and ownership model is game-agnostic. Pokémon-specific facts live in an extension table rather than defining every card game.
+The current import and artwork paths support Pokémon TCG data, but the core printing and ownership model is game-agnostic. Pokémon-specific facts live in an extension table rather than defining every card game.
 
 ## Technology
 
 - Next.js App Router, React, and strict TypeScript
 - SQLite through `better-sqlite3`
 - Drizzle ORM and checked-in SQL migrations
-- Zod for mutation validation and `csv-parse` for the seed adapter
+- Zod for mutation validation and `csv-parse` for collection imports
 - Vitest for importer and collection integration tests
 - Plain responsive CSS, with no external artwork bundled in the repository
 
@@ -27,42 +27,41 @@ npm run db:setup
 npm run dev
 ```
 
-Open [http://127.0.0.1:3000](http://127.0.0.1:3000). `db:setup` applies migrations and imports `data/seed/collection.csv` into a fresh **My Collection** development profile; no database file needs to be created manually.
+Open [http://127.0.0.1:3000](http://127.0.0.1:3000). `db:setup` applies migrations and creates a fresh, empty **My Collection** profile; no database file needs to be created manually. Import a personal CSV with the workflow below when you are ready to add cards.
 
 The default database is `data/cardboardex.sqlite` and is intentionally ignored by Git. Set `CARDBOARDEX_DB_PATH` to use a different location.
 
 ### Collection profiles
 
-A profile answers “whose collection is this?” It is a local ownership container, not a login, account, permission boundary, language, game, or era. Use the collection selector in the header to switch profiles; its Manage panel creates, renames, duplicates, and deletes profiles. Duplicating a collection creates independent OwnedCards and provenance while reusing shared CardPrintings and artwork. Deleting a collection removes only its profile-scoped ownership/provenance; shared card metadata remains, and the final remaining collection cannot be deleted. The browser remembers the selected profile locally and switches to a deterministic remaining collection after deletion.
+A profile answers “whose collection is this?” It is a local ownership container, not a login, account, permission boundary, language, game, or era. Use the collection selector in the header to switch profiles; its Manage panel creates, renames, duplicates, and deletes profiles. A profile's canonical URL/CLI slug follows its display name (`Thomas` becomes `thomas`). Renaming retains the prior slug as a compatibility alias, so old bookmarks and commands continue to resolve while the UI emits the new canonical slug. Duplicating a collection creates independent OwnedCards and provenance while reusing shared CardPrintings and artwork. Deleting a collection removes only its profile-scoped ownership/provenance; shared card metadata remains, and the final remaining collection cannot be deleted. The browser remembers the selected profile locally and switches to a deterministic remaining collection after deletion.
 
-Fresh setup creates **My Collection** and imports the seed into it. An existing single-collection database is migrated into that same default profile without resetting or re-importing its cards. Each profile can contain a mixture of games, eras, and printing languages. Language belongs to the published CardPrinting, so English and Japanese versions remain distinct even when they depict the same Pokémon.
+Fresh setup creates an empty **My Collection** profile. Existing databases are migrated in place without resetting or re-importing cards. A legacy renamed default profile is promoted from `my-collection` to its name-derived canonical slug while `my-collection` remains an alias. Each profile can contain a mixture of games, eras, and printing languages. Language belongs to the published CardPrinting, so English and Japanese versions remain distinct even when they depict the same Pokémon.
 
 ### Common commands
 
-| Command                          | Purpose                                                            |
-| -------------------------------- | ------------------------------------------------------------------ |
-| `npm run db:init`                | Create/update the SQLite schema without importing cards            |
-| `npm run collection:sync -- ...` | Preview or update one personal collection from its complete CSV    |
-| `npm run db:import -- ...`       | Advanced import with an explicit provenance source key             |
-| `npm run db:seed`                | Load the public fixture into an unrenamed development profile      |
-| `npm run db:setup`               | Initialize and seed a fresh checkout                               |
-| `npm run db:reset -- --yes`      | **Delete the local database and rebuild it from the seed fixture** |
-| `npm run artwork:sync`           | Resolve trusted Pokémon artwork into the local database            |
-| `npm run dev`                    | Start the development server on `127.0.0.1`                        |
-| `npm run build`                  | Create a production build                                          |
-| `npm start`                      | Run the production build on `127.0.0.1`                            |
-| `npm test`                       | Run importer and collection behavior tests                         |
-| `npm run lint`                   | Run ESLint with zero warnings allowed                              |
-| `npm run typecheck`              | Run strict TypeScript checking                                     |
-| `npm run format:check`           | Check formatting                                                   |
-| `npm run security:audit`         | Audit the complete npm dependency tree                             |
-| `npm run check`                  | Run tests, lint, typecheck, and build                              |
+| Command                          | Purpose                                                         |
+| -------------------------------- | --------------------------------------------------------------- |
+| `npm run db:init`                | Create/update the SQLite schema without importing cards         |
+| `npm run collection:sync -- ...` | Preview or update one personal collection from its complete CSV |
+| `npm run db:import -- ...`       | Advanced import with an explicit provenance source key          |
+| `npm run db:setup`               | Initialize a fresh checkout with an empty collection            |
+| `npm run db:reset -- --yes`      | **Delete the local database and create an empty catalog**       |
+| `npm run artwork:sync`           | Resolve trusted Pokémon artwork into the local database         |
+| `npm run dev`                    | Start the development server on `127.0.0.1`                     |
+| `npm run build`                  | Create a production build                                       |
+| `npm start`                      | Run the production build on `127.0.0.1`                         |
+| `npm test`                       | Run importer and collection behavior tests                      |
+| `npm run lint`                   | Run ESLint with zero warnings allowed                           |
+| `npm run typecheck`              | Run strict TypeScript checking                                  |
+| `npm run format:check`           | Check formatting                                                |
+| `npm run security:audit`         | Audit the complete npm dependency tree                          |
+| `npm run check`                  | Run tests, lint, typecheck, and build                           |
 
-`db:seed` is only a development-fixture loader. It refuses to write into the default profile after that profile has been renamed, which prevents an accidental fixture import into a personal collection. It never resets the database. The importer requires an explicit target profile ID, so separate profiles may safely reuse the same source and external inventory IDs. `db:reset` is the only destructive database command; it refuses to run without the explicit `--yes` confirmation and permanently removes local edits and manually added cards.
+The importer requires an explicit target profile ID internally, so separate profiles may safely reuse the same source and external inventory IDs. `db:reset` is the only destructive database command; it refuses to run without the explicit `--yes` confirmation, permanently removes local edits and manually added cards, and does not import fixture or personal data afterward.
 
 ### Updating a personal collection
 
-Use the same workflow for Thomas, Ekah, and every future collection. Keep each private working CSV under ignored local storage, for example `data/local/thomas/collection.csv` and `data/local/ekah/collection.csv`. Do not put real collection CSVs, photo provenance, conditions, future valuations, private notes, or other personal ownership data in `data/seed`; that directory contains only the public development fixture.
+Use the same workflow for Thomas, Ekah, and every future collection. Keep each private working CSV under ignored local storage, for example `data/local/thomas/collection.csv` and `data/local/ekah/collection.csv`. The whole `data/local` directory is ignored by Git; do not commit real collection CSVs, photo provenance, conditions, future valuations, private notes, or other personal ownership data.
 
 The normal workflow is in the application:
 
@@ -78,12 +77,12 @@ The equivalent command-line fallback also chooses the safe source identity autom
 
 ```bash
 npm run collection:sync -- \
-  --profile my-collection \
+  --profile thomas \
   --file data/local/thomas/collection.csv \
   --dry-run
 
 npm run collection:sync -- \
-  --profile my-collection \
+  --profile thomas \
   --file data/local/thomas/collection.csv
 ```
 
@@ -91,7 +90,7 @@ Replace the profile slug and file path for any other collection, such as `--prof
 
 Shared `CardPrinting`, set, Pokémon-detail, identifier, and attack facts are reconciled conservatively: missing input preserves known data, compatible input may enrich gaps, and contradictory known facts abort the whole import. The source-owned `OwnedCard` row remains authoritative for its ownership fields. If a profile intentionally combines more than one CSV source, the automatic workflow refuses to guess; use the advanced `db:import` command with an explicit stable `--source-key` for that profile.
 
-Pushes and pull requests targeting `main` are validated by GitHub Actions using `npm run check` and the dependency audit. Run `npm run check` locally before sharing changes. Generated SQLite databases are local runtime data and must never be committed; `data/seed/collection.csv` is the intentionally version-controlled development fixture.
+Pushes and pull requests targeting `main` are validated by GitHub Actions using `npm run check` and the dependency audit. Run `npm run check` locally before sharing changes. Generated SQLite databases and personal collection CSVs are local runtime data and must never be committed. Purpose-built parser/import fixtures live under `tests/fixtures`.
 
 ## Data model
 
@@ -113,13 +112,13 @@ The normalized schema contains:
 - profile-scoped owned-card lots containing quantity, condition, personal facts, and optional photo filenames/batch positions; and
 - profile-scoped import provenance retaining every original CSV field and a source hash.
 
-The seed fixture lives at [`data/seed/collection.csv`](data/seed/collection.csv). Its importer handles the UTF-8 BOM, quoted fields, NFC-normalized Unicode text, blanks, numeric validation, overloaded variant data, and transactional/idempotent writes. The fixture currently derives to 89 collection entries and 93 physical cards; tests assert those fixture acceptance totals rather than embedding them in application logic.
+The collection importer handles the UTF-8 BOM, quoted fields, NFC-normalized Unicode text, blanks, numeric validation, overloaded variant data, and transactional/idempotent writes. Purpose-built fixtures under `tests/fixtures` verify those behaviors without treating a real owner's collection as application seed data.
 
 The original 33-column CSV format remains valid and defaults to English. Import files may append optional columns in this order: `Language`, `English Name`, `Catalog Provider`, `Catalog Set ID`, `Catalog Card ID`, `Printing Variant`, `Card Back Design`, `Printing Finish`, `Physical Form`, `Printed Identifiers`, `Component Group Key`, `Component Group Type`, `Component Group Name`, `Expected Component Count`, `Component Key`, `Photo Batch`, `Grid Position`, `Front Photo`, `Back Photo`, and `Condition`. Optional columns form a compatible prefix, so existing six-column international extensions and the previous 52-column cataloging format remain valid. `Language` accepts normalized codes such as `en`, `ja`, and other two-letter language/region forms; `English Name` is an optional searchable alias that does not replace the printed name. The three catalog fields are optional as a group. `Printing Variant` and `Printing Finish` store known publishing identity facts; leave them blank when the physical printing was not assessed instead of guessing. The legacy `Finish / Variant` field continues to carry rarity, sealed-state, and ownership notes for backward compatibility. `Inventory ID` is required normalized provenance text and may be numeric or a stable value such as `EKAH-20260813-B19-A3`. `Collector No.` may contain a non-numeric published identifier or be blank when the physical card is unnumbered. Additional identifiers use semicolon-separated `role: value` entries, such as `species/pokedex-number: No.004`, and never manufacture a collector number. Photo values are audit-friendly source identifiers or filenames; Cardboardex does not require those files to exist at runtime. `Condition` is optional free text stored on the source-owned ownership lot.
 
 Catalog provider/set/card identity is optional enrichment, never a prerequisite for a legitimate locally cataloged printing. Adding a compatible exact catalog identity reconciles the existing CardPrinting in place so ownership, attacks, Pokémon details, artwork, and provenance remain attached. Conflicting identities fail transactionally rather than guessing equivalence from a card name.
 
-The checked-in CSV is intentionally public development data. Do not add future private ownership information—such as purchase history, prices paid, storage locations, addresses, identifying information, or private notes—without first moving that data to local-only storage.
+Checked-in CSVs are test-only data. Keep private ownership information—such as collection snapshots, purchase history, prices paid, storage locations, addresses, identifying information, or private notes—in ignored local storage.
 
 ## Artwork
 
@@ -145,7 +144,7 @@ Coverage is intentionally incomplete. TCGdex remains the catalog authority for v
 
 Within one mapped group, the TCGCSV bridge requires an exact normalized `canonicalName` match and corroborates available HP, rarity, stage, and Pokémon elemental-type facts from the local printing and exact TCGdex record. Pokémon stage enums are compared semantically (`Stage1` equals `Stage 1`, and likewise for `Stage2`) without fuzzy-matching unknown stages. TCGplayer's terminal `(C)`/`(U)` name suffix is ignored only when rarity independently agrees. Exactly one candidate must survive; missing canonical names, conflicting facts, unsupported sets or variants, zero matches, and ambiguous duplicate or same-name matches deliberately remain placeholders. Each artwork sync caches successfully parsed products by TCGCSV group and spaces actual TCGCSV requests by at least 250 ms; failed or non-JSON responses remain provider failures and are not cached. TCGCSV image URLs are never trusted: only the matched positive product ID is used to construct and HEAD-verify the constrained TCGplayer CDN URL, stored under artwork provider `tcgcsv-tcgplayer`. This path does not turn catalog-local IDs into purported printed collector numbers, borrow another variant's pricing, or substitute English artwork.
 
-Successful resolutions store only a URL, provider key, and external identity on the shared CardPrinting in local SQLite. Two profiles that own the same printing therefore reuse one artwork resolution. Image binaries are never committed, downloaded into the repository, or proxied by Cardboardex. Resolved printings are skipped on later runs; unresolved cards and partial network failures remain eligible for retry. The CLI reports already resolved, newly resolved, unresolved, and failed counts. Baseline setup, seeding, tests, builds, and CI never run the network enrichment step.
+Successful resolutions store only a URL, provider key, and external identity on the shared CardPrinting in local SQLite. Two profiles that own the same printing therefore reuse one artwork resolution. Image binaries are never committed, downloaded into the repository, or proxied by Cardboardex. Resolved printings are skipped on later runs; unresolved cards and partial network failures remain eligible for retry. The CLI reports already resolved, newly resolved, unresolved, and failed counts. Baseline setup, tests, builds, and CI never run the network enrichment step.
 
 Official card images are accepted only from `https://assets.pokemon.com/static-assets/content-assets/cms2/img/cards/web/...`; exact TCGdex images only from the documented `https://assets.tcgdex.net/<language>/<series>/<set>/<local-id>/<size>.<format>` shape; and vintage fallback images only from the TCGplayer path documented above. Images load directly in the browser and are never proxied by the Cardboardex web server. Missing, rejected, or failed images continue to use the type-aware placeholder. Ownership badges remain independent of reference artwork.
 
@@ -157,13 +156,12 @@ Additional trusted providers can still be enabled deliberately with a comma-sepa
 src/app/                 Pages and JSON route handlers
 src/components/          Collection, detail, editor, and artwork UI
 src/db/                  Drizzle schema, connection, and migrations
-src/lib/import/          Strict CSV parsing and normalized seed import
+src/lib/import/          Strict CSV parsing and normalized collection import
 src/lib/repositories/    Typed collection reads and writes
 src/lib/services/        Validation and application operations
 src/lib/images/          Card-image provider boundary
 src/scripts/             Database CLI commands
-tests/                   Real SQLite integration tests
-data/seed/               Versioned CSV development fixture
+tests/                   Real SQLite integration tests and purpose-built fixtures
 ```
 
 ## Current scope and limitations

@@ -16,7 +16,7 @@ import {
 import { createProfileService } from "@/lib/services/profile-service";
 
 const fixture = fs.readFileSync(
-  path.resolve(process.cwd(), "data/seed/collection.csv"),
+  path.resolve(process.cwd(), "tests/fixtures/collection-import.csv"),
 );
 const smallFixture = fs.readFileSync(
   path.resolve(process.cwd(), "tests/fixtures/japanese-vintage.csv"),
@@ -37,10 +37,12 @@ describe("profile collection CSV sync", () => {
   it("adopts a migrated collection's sole source key without duplicating ownership", () => {
     const defaultProfile = connection.db.select().from(profiles).get();
     if (!defaultProfile) throw new Error("Expected the default profile.");
-    const profile = createProfileService(connection.db).renameProfile(
-      defaultProfile.slug,
-      { name: "Thomas" },
-    );
+    const profileService = createProfileService(connection.db);
+    const profile = profileService.renameProfile(defaultProfile.slug, {
+      name: "Thomas",
+    });
+    expect(profile.slug).toBe("thomas");
+    expect(profileService.ensureDefaultProfile()).toEqual(profile);
 
     importCollectionCsv(connection.db, fixture, {
       profileId: profile.id,
@@ -54,18 +56,19 @@ describe("profile collection CSV sync", () => {
 
     const preview = syncProfileCollectionCsv(
       connection.db,
-      profile.slug,
+      "my-collection",
       fixture,
       { dryRun: true },
     );
     expect(preview).toMatchObject({
       sourceKey: "data/seed/collection.csv",
+      profileSlug: "thomas",
       reusedExistingSource: true,
       createdEntries: 0,
-      matchedEntries: 89,
+      matchedEntries: 20,
       missingEntries: 0,
-      collectionEntries: 89,
-      physicalCards: 93,
+      collectionEntries: 20,
+      physicalCards: 24,
     });
 
     const imported = syncProfileCollectionCsv(
@@ -76,7 +79,7 @@ describe("profile collection CSV sync", () => {
     expect(imported).toMatchObject({
       sourceKey: "data/seed/collection.csv",
       createdEntries: 0,
-      matchedEntries: 89,
+      matchedEntries: 20,
     });
     expect(
       connection.db
@@ -136,7 +139,7 @@ describe("profile collection CSV sync", () => {
     syncProfileCollectionCsv(connection.db, profile.slug, fixture);
 
     const lines = fixture.toString("utf8").trimEnd().split(/\r?\n/u);
-    expect(lines).toHaveLength(90);
+    expect(lines).toHaveLength(21);
     const oneRowMissing = lines.slice(0, -1).join("\n");
 
     const preview = syncProfileCollectionCsv(
@@ -146,12 +149,12 @@ describe("profile collection CSV sync", () => {
       { dryRun: true },
     );
     expect(preview).toMatchObject({
-      importedEntries: 88,
+      importedEntries: 19,
       createdEntries: 0,
-      matchedEntries: 88,
+      matchedEntries: 19,
       missingEntries: 1,
-      collectionEntries: 89,
-      physicalCards: 93,
+      collectionEntries: 20,
+      physicalCards: 24,
     });
 
     const imported = syncProfileCollectionCsv(
@@ -166,7 +169,7 @@ describe("profile collection CSV sync", () => {
         .from(importRecords)
         .where(eq(importRecords.profileId, profile.id))
         .get(),
-    ).toEqual({ count: 89 });
+    ).toEqual({ count: 20 });
   });
 
   it("refuses to guess when a profile intentionally has multiple sources", () => {

@@ -1,7 +1,12 @@
-import { asc, eq, sql } from "drizzle-orm";
+import { and, asc, eq, ne, sql } from "drizzle-orm";
 
 import type { AppDatabase } from "@/db/client";
-import { importRecords, ownedCards, profiles } from "@/db/schema";
+import {
+  importRecords,
+  ownedCards,
+  profiles,
+  profileSlugAliases,
+} from "@/db/schema";
 import type { DeleteProfileResult, Profile } from "@/lib/types/profile";
 
 export const DEFAULT_PROFILE_SLUG = "my-collection";
@@ -27,16 +32,28 @@ export class ProfileRepository {
   }
 
   getBySlug(slug: string): Profile | null {
-    return (
+    const canonical =
       this.db
         .select(profileSelection)
         .from(profiles)
         .where(eq(profiles.slug, slug))
+        .get() ?? null;
+    if (canonical) return canonical;
+
+    return (
+      this.db
+        .select(profileSelection)
+        .from(profileSlugAliases)
+        .innerJoin(profiles, eq(profileSlugAliases.profileId, profiles.id))
+        .where(eq(profileSlugAliases.slug, slug))
         .get() ?? null
     );
   }
 
   ensureDefault(): Profile {
+    const existing = this.list()[0];
+    if (existing) return existing;
+
     this.db
       .insert(profiles)
       .values({ slug: DEFAULT_PROFILE_SLUG, name: DEFAULT_PROFILE_NAME })
@@ -60,6 +77,11 @@ export class ProfileRepository {
           .select({ id: profiles.id })
           .from(profiles)
           .where(eq(profiles.slug, slug))
+          .get() ||
+        tx
+          .select({ id: profileSlugAliases.id })
+          .from(profileSlugAliases)
+          .where(eq(profileSlugAliases.slug, slug))
           .get()
       ) {
         suffix += 1;
@@ -74,15 +96,82 @@ export class ProfileRepository {
     });
   }
 
-  rename(slug: string, name: string): Profile | null {
-    return (
-      this.db
-        .update(profiles)
-        .set({ name, updatedAt: sql`CURRENT_TIMESTAMP` })
-        .where(eq(profiles.slug, slug))
-        .returning(profileSelection)
-        .get() ?? null
-    );
+  rename(slug: string, name: string, baseSlug: string): Profile | null {
+    return this.db.transaction((tx) => {
+      const source =
+        tx
+          .select(profileSelection)
+          .from(profiles)
+          .where(eq(profiles.slug, slug))
+          .get() ??
+        tx
+          .select(profileSelection)
+          .from(profileSlugAliases)
+          .innerJoin(profiles, eq(profileSlugAliases.profileId, profiles.id))
+          .where(eq(profileSlugAliases.slug, slug))
+          .get() ??
+        null;
+      if (!source) return null;
+
+      let suffix = 1;
+      let nextSlug = baseSlug;
+      while (true) {
+        const canonicalCollision = tx
+          .select({ id: profiles.id })
+          .from(profiles)
+          .where(and(eq(profiles.slug, nextSlug), ne(profiles.id, source.id)))
+          .get();
+        const aliasCollision = tx
+          .select({ profileId: profileSlugAliases.profileId })
+          .from(profileSlugAliases)
+          .where(eq(profileSlugAliases.slug, nextSlug))
+          .get();
+        if (
+          !canonicalCollision &&
+          (!aliasCollision || aliasCollision.profileId === source.id)
+        ) {
+          break;
+        }
+        suffix += 1;
+        nextSlug = `${baseSlug}-${suffix}`;
+      }
+
+      if (nextSlug !== source.slug) {
+        tx.delete(profileSlugAliases)
+          .where(
+            and(
+              eq(profileSlugAliases.profileId, source.id),
+              eq(profileSlugAliases.slug, nextSlug),
+            ),
+          )
+          .run();
+        tx.update(profiles)
+          .set({
+            slug: nextSlug,
+            name,
+            updatedAt: sql`CURRENT_TIMESTAMP`,
+          })
+          .where(eq(profiles.id, source.id))
+          .run();
+        tx.insert(profileSlugAliases)
+          .values({ profileId: source.id, slug: source.slug })
+          .onConflictDoNothing({ target: profileSlugAliases.slug })
+          .run();
+      } else {
+        tx.update(profiles)
+          .set({ name, updatedAt: sql`CURRENT_TIMESTAMP` })
+          .where(eq(profiles.id, source.id))
+          .run();
+      }
+
+      return (
+        tx
+          .select(profileSelection)
+          .from(profiles)
+          .where(eq(profiles.id, source.id))
+          .get() ?? null
+      );
+    });
   }
 
   duplicate(
@@ -96,7 +185,14 @@ export class ProfileRepository {
           .select(profileSelection)
           .from(profiles)
           .where(eq(profiles.slug, sourceSlug))
-          .get() ?? null;
+          .get() ??
+        tx
+          .select(profileSelection)
+          .from(profileSlugAliases)
+          .innerJoin(profiles, eq(profileSlugAliases.profileId, profiles.id))
+          .where(eq(profileSlugAliases.slug, sourceSlug))
+          .get() ??
+        null;
       if (!source) return null;
 
       let suffix = 1;
@@ -106,6 +202,11 @@ export class ProfileRepository {
           .select({ id: profiles.id })
           .from(profiles)
           .where(eq(profiles.slug, slug))
+          .get() ||
+        tx
+          .select({ id: profileSlugAliases.id })
+          .from(profileSlugAliases)
+          .where(eq(profileSlugAliases.slug, slug))
           .get()
       ) {
         suffix += 1;
@@ -191,7 +292,14 @@ export class ProfileRepository {
           .select(profileSelection)
           .from(profiles)
           .where(eq(profiles.slug, slug))
-          .get() ?? null;
+          .get() ??
+        tx
+          .select(profileSelection)
+          .from(profileSlugAliases)
+          .innerJoin(profiles, eq(profileSlugAliases.profileId, profiles.id))
+          .where(eq(profileSlugAliases.slug, slug))
+          .get() ??
+        null;
       if (!profile) return null;
 
       const profileCount = tx

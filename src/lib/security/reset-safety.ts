@@ -14,10 +14,7 @@ export function assertSafeResetTarget(databasePath: string): string {
   const resolvedPath = path.resolve(databasePath);
   const parsedPath = path.parse(resolvedPath);
   const allowedExtensions = new Set([".db", ".sqlite", ".sqlite3"]);
-  const protectedDirectories = [
-    path.resolve(process.cwd(), ".git"),
-    path.resolve(process.cwd(), "data/seed"),
-  ];
+  const protectedDirectories = [path.resolve(process.cwd(), ".git")];
 
   if (
     resolvedPath === parsedPath.root ||
@@ -42,7 +39,7 @@ export function assertResetConfirmed(
       [
         `Refusing to delete ${databasePath} without explicit confirmation.`,
         `Run: npm run db:reset -- ${RESET_CONFIRMATION_FLAG}`,
-        "This permanently removes local edits and manually added cards before rebuilding from the seed fixture.",
+        "This permanently removes local edits and manually added cards before creating an empty catalog.",
       ].join("\n"),
     );
   }

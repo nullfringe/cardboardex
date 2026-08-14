@@ -1,4 +1,3 @@
-import { DEFAULT_PROFILE_SLUG } from "@/lib/repositories/profile-repository";
 import {
   profileSlugSchema,
   type ProfileService,
@@ -23,9 +22,5 @@ export function selectProfile(
     return parsed.success ? service.getProfile(parsed.data) : null;
   }
 
-  return (
-    service.getProfile(DEFAULT_PROFILE_SLUG) ??
-    service.listProfiles()[0] ??
-    null
-  );
+  return service.listProfiles()[0] ?? null;
 }

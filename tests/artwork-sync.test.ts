@@ -22,7 +22,10 @@ import { importCollectionCsv } from "@/lib/import";
 import { createCollectionService } from "@/lib/services/collection-service";
 import { createProfileService } from "@/lib/services/profile-service";
 
-const seedPath = path.resolve(process.cwd(), "data/seed/collection.csv");
+const seedPath = path.resolve(
+  process.cwd(),
+  "tests/fixtures/collection-import.csv",
+);
 const fixturePath = path.resolve(
   process.cwd(),
   "tests/fixtures/pokemon-card-page.html",
@@ -238,14 +241,14 @@ describe("Pokémon artwork sync", () => {
       requestDelayMs: 0,
     });
     expect(first).toMatchObject({
-      totalPrintings: 89,
+      totalPrintings: 20,
       alreadyResolved: 0,
-      attempted: 89,
-      resolved: 78,
+      attempted: 20,
+      resolved: 9,
       unresolved: 11,
       failed: 0,
     });
-    expect(fetchImpl).toHaveBeenCalledTimes(79);
+    expect(fetchImpl).toHaveBeenCalledTimes(10);
 
     const maschiff = connection.db
       .select({
@@ -263,13 +266,21 @@ describe("Pokémon artwork sync", () => {
     });
 
     const service = createCollectionService(connection.db);
-    expect(service.getCollectionEntry("my-collection", 68)).toMatchObject({
+    const collection = service.listCollection("my-collection");
+    const bulbasaur = collection.find((card) => card.name === "Bulbasaur");
+    const abra = collection.find((card) => card.name === "Abra");
+    if (!bulbasaur || !abra) throw new Error("Expected artwork fixture cards");
+    expect(
+      service.getCollectionEntry("my-collection", bulbasaur.ownedCardId),
+    ).toMatchObject({
       name: "Bulbasaur",
       sealed: true,
       imageUrl:
         "https://assets.pokemon.com/static-assets/content-assets/cms2/img/cards/web/ME01/ME01_EN_133.png",
     });
-    expect(service.getCollectionEntry("my-collection", 69)).toMatchObject({
+    expect(
+      service.getCollectionEntry("my-collection", abra.ownedCardId),
+    ).toMatchObject({
       name: "Abra",
       imageProvider: VINTAGE_POKEMON_ARTWORK_PROVIDER,
       imageUrl:
@@ -285,8 +296,8 @@ describe("Pokémon artwork sync", () => {
       requestDelayMs: 0,
     });
     expect(second).toMatchObject({
-      totalPrintings: 89,
-      alreadyResolved: 78,
+      totalPrintings: 20,
+      alreadyResolved: 9,
       attempted: 11,
       resolved: 0,
       unresolved: 11,
@@ -303,8 +314,8 @@ describe("Pokémon artwork sync", () => {
       requestDelayMs: 0,
     });
     expect(result).toMatchObject({
-      attempted: 89,
-      resolved: 77,
+      attempted: 20,
+      resolved: 8,
       failed: 1,
     });
     expect(
@@ -364,8 +375,8 @@ describe("Pokémon artwork sync", () => {
     });
 
     expect(result).toMatchObject({
-      totalPrintings: 90,
-      resolved: 79,
+      totalPrintings: 21,
+      resolved: 10,
       unresolved: 11,
       failed: 0,
     });
@@ -497,8 +508,8 @@ describe("Pokémon artwork sync", () => {
     });
 
     expect(result).toMatchObject({
-      totalPrintings: 91,
-      resolved: 80,
+      totalPrintings: 22,
+      resolved: 11,
       unresolved: 11,
       failed: 0,
     });
@@ -568,8 +579,8 @@ describe("Pokémon artwork sync", () => {
     });
 
     expect(result).toMatchObject({
-      totalPrintings: 90,
-      resolved: 78,
+      totalPrintings: 21,
+      resolved: 9,
       unresolved: 12,
       failed: 0,
     });

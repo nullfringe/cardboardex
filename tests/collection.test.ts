@@ -1125,7 +1125,7 @@ describe("collection service", () => {
     ).toHaveLength(1);
   });
 
-  it("lists, creates, and renames stable local profile identities", () => {
+  it("lists, creates, renames, and aliases local profile identities", () => {
     const profiles = createProfileService(connection.db);
     expect(profiles.listProfiles()).toMatchObject([
       { slug: "my-collection", name: "My Collection" },
@@ -1140,9 +1140,12 @@ describe("collection service", () => {
     expect(first.slug).toBe("ekah");
     expect(second.slug).toBe("ekah-2");
     expect(renamed).toMatchObject({
-      slug: "ekah",
+      slug: "ekah-s-collection",
       name: "Ekah's Collection",
     });
-    expect(profiles.listProfiles()).toHaveLength(3);
+    expect(profiles.getProfile("ekah")).toEqual(renamed);
+    expect(profiles.ensureDefaultProfile().slug).toBe("my-collection");
+    expect(profiles.createProfile({ name: "Ekah" }).slug).toBe("ekah-3");
+    expect(profiles.listProfiles()).toHaveLength(4);
   });
 });

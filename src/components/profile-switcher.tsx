@@ -125,6 +125,7 @@ export function ProfileSwitcher({
     setError(null);
     const name =
       new FormData(event.currentTarget).get("name")?.toString() ?? "";
+    const previousSlug = activeProfile.slug;
 
     try {
       const response = await fetch(
@@ -141,10 +142,11 @@ export function ProfileSwitcher({
 
       setProfiles((current) =>
         current.map((profile) =>
-          profile.slug === result.slug ? result : profile,
+          profile.slug === previousSlug ? result : profile,
         ),
       );
-      router.refresh();
+      window.localStorage.setItem(STORAGE_KEY, result.slug);
+      router.replace(`/?profile=${encodeURIComponent(result.slug)}`);
     } catch (caught) {
       setError(
         caught instanceof Error ? caught.message : "Profile rename failed.",

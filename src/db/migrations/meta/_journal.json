@@ -36,6 +36,13 @@
       "when": 1786629600000,
       "tag": "0004_printing_cataloging",
       "breakpoints": true
+    },
+    {
+      "idx": 5,
+      "version": "6",
+      "when": 1786737600000,
+      "tag": "0005_profile_slug_aliases",
+      "breakpoints": true
     }
   ]
 }

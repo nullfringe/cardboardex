@@ -8,8 +8,9 @@ import {
   importCollectionCsv,
   type ImportCollectionResult,
 } from "./import-collection";
+import { PRIMARY_COLLECTION_SOURCE_KEY } from "./source-keys";
 
-export const PRIMARY_COLLECTION_SOURCE_KEY = "primary-collection";
+export { PRIMARY_COLLECTION_SOURCE_KEY } from "./source-keys";
 
 export class MultipleCollectionSourcesError extends Error {
   constructor(

@@ -15,7 +15,10 @@ import {
 } from "@/lib/import/import-command";
 import { createProfileService } from "@/lib/services/profile-service";
 
-const fixturePath = path.resolve(process.cwd(), "data/seed/collection.csv");
+const fixturePath = path.resolve(
+  process.cwd(),
+  "tests/fixtures/collection-import.csv",
+);
 
 describe("db:import command", () => {
   let temporaryDirectory: string;
@@ -121,11 +124,11 @@ describe("db:import command", () => {
       profileName: "Ekah",
       profileSlug: "ekah",
       sourceKey: "ekah-collection",
-      importedEntries: 89,
-      importedQuantity: 93,
-      collectionEntries: 89,
-      physicalCards: 93,
-      createdEntries: 89,
+      importedEntries: 20,
+      importedQuantity: 24,
+      collectionEntries: 20,
+      physicalCards: 24,
+      createdEntries: 20,
       matchedEntries: 0,
       missingEntries: 0,
       dryRun: true,
@@ -149,15 +152,15 @@ describe("db:import command", () => {
 
     const imported = runCollectionImportCommand({ ...options, dryRun: false });
     expect(imported).toMatchObject({
-      collectionEntries: 89,
-      physicalCards: 93,
+      collectionEntries: 20,
+      physicalCards: 24,
       dryRun: false,
     });
 
     connection = createDatabaseConnection(databasePath);
     try {
-      expect(connection.db.select().from(ownedCards).all()).toHaveLength(89);
-      expect(connection.db.select().from(importRecords).all()).toHaveLength(89);
+      expect(connection.db.select().from(ownedCards).all()).toHaveLength(20);
+      expect(connection.db.select().from(importRecords).all()).toHaveLength(20);
     } finally {
       connection.sqlite.close();
     }
