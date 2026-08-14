@@ -119,6 +119,11 @@ function optionalText(value: string | null | undefined): string | null {
   return typeof value === "string" && value.trim() ? value.trim() : null;
 }
 
+function isAcceptedJsonMediaType(value: string | null): boolean {
+  const mediaType = value?.split(";", 1)[0]?.trim().toLocaleLowerCase("en-US");
+  return mediaType === "application/json" || mediaType === "text/json";
+}
+
 function positiveInteger(value: unknown): number | null {
   return Number.isSafeInteger(value) && Number(value) > 0
     ? Number(value)
@@ -256,12 +261,7 @@ async function fetchProducts(
       `TCGCSV returned HTTP ${response.status}.`,
     );
   }
-  if (
-    !response.headers
-      .get("content-type")
-      ?.toLocaleLowerCase("en-US")
-      .startsWith("application/json")
-  ) {
+  if (!isAcceptedJsonMediaType(response.headers.get("content-type"))) {
     throw new TcgCsvPokemonArtworkError("TCGCSV did not return JSON.");
   }
 

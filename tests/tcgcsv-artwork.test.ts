@@ -457,6 +457,42 @@ describe("constrained Japanese vintage TCGCSV products", () => {
     }
   });
 
+  it.each([
+    "application/json",
+    "application/json; charset=utf-8",
+    "text/json",
+    "text/json; charset=utf-8",
+    "TeXt/JsOn; ChArSeT=UTF-8",
+  ])("accepts the explicit JSON media type %s", async (contentType) => {
+    const fetchImpl = productsFetch(fixture("tcgcsv-pmcg1-23721"), 23721, {
+      contentType,
+    });
+    await expect(
+      resolveTcgCsvPokemonProduct(charmanderIdentity, { fetchImpl }),
+    ).resolves.toEqual({ categoryId: 85, groupId: 23721, productId: 575573 });
+  });
+
+  it.each(["text/html", "text/plain"])(
+    "rejects valid-looking JSON served as %s",
+    async (contentType) => {
+      const fetchImpl = productsFetch(fixture("tcgcsv-pmcg1-23721"), 23721, {
+        contentType,
+      });
+      await expect(
+        resolveTcgCsvPokemonProduct(charmanderIdentity, { fetchImpl }),
+      ).rejects.toBeInstanceOf(TcgCsvPokemonArtworkError);
+    },
+  );
+
+  it("rejects malformed JSON under an accepted text/json MIME", async () => {
+    const fetchImpl = productsFetch("{", 23721, {
+      contentType: "text/json; charset=utf-8",
+    });
+    await expect(
+      resolveTcgCsvPokemonProduct(charmanderIdentity, { fetchImpl }),
+    ).rejects.toBeInstanceOf(TcgCsvPokemonArtworkError);
+  });
+
   it("rejects redirects, wrong MIME, malformed JSON, and oversized responses", async () => {
     const cases = [
       productsFetch("", 23721, { status: 302 }),
