@@ -9,6 +9,7 @@ import {
   resolveOfficialPokemonArtwork,
 } from "./official-pokemon-artwork";
 import { storedMetadataImageProvider } from "./card-image-provider";
+import { createTcgCsvPokemonClient } from "./tcgcsv-pokemon-artwork";
 import {
   resolveTcgDexPokemonArtwork,
   type TcgDexPokemonArtwork,
@@ -60,6 +61,10 @@ export async function syncPokemonArtwork(
   db: AppDatabase,
   options: ArtworkSyncOptions = {},
 ): Promise<ArtworkSyncResult> {
+  const tcgCsvClient = createTcgCsvPokemonClient({
+    fetchImpl: options.fetchImpl,
+    timeoutMs: options.timeoutMs,
+  });
   const printings = db
     .select({
       printingId: cardPrintings.id,
@@ -167,6 +172,7 @@ export async function syncPokemonArtwork(
             {
               fetchImpl: options.fetchImpl,
               timeoutMs: options.timeoutMs,
+              tcgCsvClient,
             },
           );
         } catch (error) {

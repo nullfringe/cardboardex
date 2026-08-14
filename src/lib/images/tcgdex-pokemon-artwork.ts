@@ -2,8 +2,9 @@ import { isTcgDexCardImageUrl } from "@/lib/security/card-image-policy";
 
 import type { ArtworkFetch } from "./official-pokemon-artwork";
 import {
-  resolveTcgCsvPokemonProduct,
+  createTcgCsvPokemonClient,
   TCGCSV_TCGPLAYER_ARTWORK_PROVIDER,
+  type TcgCsvPokemonClient,
 } from "./tcgcsv-pokemon-artwork";
 import {
   exactTcgplayerProductId,
@@ -299,7 +300,12 @@ export async function resolveTcgDexPokemonArtwork(
   {
     fetchImpl = (input, init) => fetch(input, init),
     timeoutMs = DEFAULT_TIMEOUT_MS,
-  }: { fetchImpl?: ArtworkFetch; timeoutMs?: number } = {},
+    tcgCsvClient,
+  }: {
+    fetchImpl?: ArtworkFetch;
+    timeoutMs?: number;
+    tcgCsvClient?: TcgCsvPokemonClient;
+  } = {},
 ): Promise<TcgDexPokemonArtwork | null> {
   if (
     normalized(identity.gameSlug) !== "pokemon-tcg" ||
@@ -359,22 +365,21 @@ export async function resolveTcgDexPokemonArtwork(
     }
   }
 
-  const tcgCsvProduct = await resolveTcgCsvPokemonProduct(
-    {
-      catalogSetId: card.setId,
-      printingVariantKey: identity.printingVariantKey,
-      canonicalName: identity.canonicalName,
-      localRarity: identity.rarity,
-      localHp: identity.hp,
-      localStage: identity.stage,
-      localPokemonType: identity.pokemonType,
-      tcgDexRarity: card.rarity,
-      tcgDexHp: card.hp,
-      tcgDexStage: card.stage,
-      tcgDexPokemonType: card.pokemonType,
-    },
-    { fetchImpl, timeoutMs },
-  );
+  const tcgCsvProduct = await (
+    tcgCsvClient ?? createTcgCsvPokemonClient({ fetchImpl, timeoutMs })
+  ).resolveProduct({
+    catalogSetId: card.setId,
+    printingVariantKey: identity.printingVariantKey,
+    canonicalName: identity.canonicalName,
+    localRarity: identity.rarity,
+    localHp: identity.hp,
+    localStage: identity.stage,
+    localPokemonType: identity.pokemonType,
+    tcgDexRarity: card.rarity,
+    tcgDexHp: card.hp,
+    tcgDexStage: card.stage,
+    tcgDexPokemonType: card.pokemonType,
+  });
   if (!tcgCsvProduct) return null;
   const url = await verifiedTcgplayerImageUrl(
     tcgCsvProduct.productId,

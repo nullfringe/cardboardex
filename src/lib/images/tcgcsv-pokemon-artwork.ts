@@ -5,6 +5,7 @@ export const TCGCSV_TCGPLAYER_ARTWORK_PROVIDER = "tcgcsv-tcgplayer";
 export const TCGCSV_POKEMON_JAPAN_CATEGORY_ID = 85;
 
 const DEFAULT_TIMEOUT_MS = 10_000;
+const DEFAULT_REQUEST_INTERVAL_MS = 250;
 const MAX_PRODUCTS_RESPONSE_BYTES = 2_000_000;
 const REDIRECT_STATUSES = new Set([301, 302, 303, 307, 308]);
 
@@ -61,6 +62,12 @@ export type TcgCsvPokemonProductMatch = {
   productId: number;
 };
 
+export type TcgCsvPokemonClient = {
+  resolveProduct(
+    identity: TcgCsvPokemonProductIdentity,
+  ): Promise<TcgCsvPokemonProductMatch | null>;
+};
+
 type TcgCsvProduct = {
   productId: number;
   name: string | null;
@@ -97,6 +104,15 @@ function normalizedProviderText(value: string): string {
     .replace(/[\p{P}\p{S}]+/gu, " ")
     .trim()
     .replace(/\s+/gu, " ");
+}
+
+function normalizedPokemonStage(value: string): string {
+  const normalized = normalizedProviderText(value);
+  const compact = normalized.replace(/\s+/gu, "");
+  if (compact === "basic") return "basic";
+  if (compact === "stage1") return "stage1";
+  if (compact === "stage2") return "stage2";
+  return normalized;
 }
 
 function optionalText(value: string | null | undefined): string | null {
@@ -291,6 +307,22 @@ function reconcileTextFact(
   };
 }
 
+function reconcileStageFact(
+  local: string | null | undefined,
+  catalog: string | null | undefined,
+): ReconciledFact<string> {
+  const localValue = optionalText(local);
+  const catalogValue = optionalText(catalog);
+  return {
+    conflict:
+      localValue !== null &&
+      catalogValue !== null &&
+      normalizedPokemonStage(localValue) !==
+        normalizedPokemonStage(catalogValue),
+    value: localValue ?? catalogValue,
+  };
+}
+
 function reconcileHpFact(
   local: number | null | undefined,
   catalog: number | null | undefined,
@@ -308,6 +340,10 @@ function reconcileHpFact(
 
 function exactTextMatch(left: string, right: string): boolean {
   return normalizedProviderText(left) === normalizedProviderText(right);
+}
+
+function exactPokemonStageMatch(left: string, right: string): boolean {
+  return normalizedPokemonStage(left) === normalizedPokemonStage(right);
 }
 
 function raritySuffix(value: string): "common" | "uncommon" | null {
@@ -375,7 +411,7 @@ function candidateMatches(
     return false;
   }
   if (hp !== null && product.hp !== hp) return false;
-  if (stage && product.stage && !exactTextMatch(product.stage, stage)) {
+  if (stage && product.stage && !exactPokemonStageMatch(product.stage, stage)) {
     return false;
   }
   if (
@@ -388,23 +424,23 @@ function candidateMatches(
   return true;
 }
 
-export async function resolveTcgCsvPokemonProduct(
+type ReconciledIdentity = {
+  canonicalName: string;
+  rarity: string | null;
+  hp: number | null;
+  stage: string | null;
+  pokemonType: string | null;
+};
+
+function reconciledIdentity(
   identity: TcgCsvPokemonProductIdentity,
-  {
-    fetchImpl = (input, init) => fetch(input, init),
-    timeoutMs = DEFAULT_TIMEOUT_MS,
-  }: { fetchImpl?: ArtworkFetch; timeoutMs?: number } = {},
-): Promise<TcgCsvPokemonProductMatch | null> {
+): ReconciledIdentity | null {
   const canonicalName = optionalText(identity.canonicalName);
-  const groupId = groupIdFor(
-    identity.catalogSetId,
-    identity.printingVariantKey,
-  );
-  if (!canonicalName || !groupId) return null;
+  if (!canonicalName) return null;
 
   const rarity = reconcileTextFact(identity.localRarity, identity.tcgDexRarity);
   const hp = reconcileHpFact(identity.localHp, identity.tcgDexHp);
-  const stage = reconcileTextFact(identity.localStage, identity.tcgDexStage);
+  const stage = reconcileStageFact(identity.localStage, identity.tcgDexStage);
   const pokemonType = reconcileTextFact(
     identity.localPokemonType,
     identity.tcgDexPokemonType,
@@ -417,18 +453,30 @@ export async function resolveTcgCsvPokemonProduct(
   ) {
     return null;
   }
+  return {
+    canonicalName,
+    rarity: rarity.value,
+    hp: hp.value,
+    stage: stage.value,
+    pokemonType: pokemonType.value,
+  };
+}
 
-  const products = await fetchProducts(groupId, fetchImpl, timeoutMs);
+function matchingProduct(
+  identity: ReconciledIdentity,
+  groupId: number,
+  products: TcgCsvProduct[],
+): TcgCsvPokemonProductMatch | null {
   const matches = products.filter((product) =>
     candidateMatches(
       product,
       TCGCSV_POKEMON_JAPAN_CATEGORY_ID,
       groupId,
-      canonicalName,
-      rarity.value,
-      hp.value,
-      stage.value,
-      pokemonType.value,
+      identity.canonicalName,
+      identity.rarity,
+      identity.hp,
+      identity.stage,
+      identity.pokemonType,
     ),
   );
   if (matches.length !== 1) return null;
@@ -438,4 +486,79 @@ export async function resolveTcgCsvPokemonProduct(
     groupId,
     productId: matches[0]!.productId,
   };
+}
+
+function wait(milliseconds: number): Promise<void> {
+  return milliseconds > 0
+    ? new Promise((resolve) => setTimeout(resolve, milliseconds))
+    : Promise.resolve();
+}
+
+export function createTcgCsvPokemonClient({
+  fetchImpl = (input, init) => fetch(input, init),
+  timeoutMs = DEFAULT_TIMEOUT_MS,
+}: {
+  fetchImpl?: ArtworkFetch;
+  timeoutMs?: number;
+} = {}): TcgCsvPokemonClient {
+  const productsByGroup = new Map<number, TcgCsvProduct[]>();
+  const pendingByGroup = new Map<number, Promise<TcgCsvProduct[]>>();
+  let requestQueue = Promise.resolve();
+  let lastRequestStartedAt: number | null = null;
+
+  const loadProducts = (groupId: number): Promise<TcgCsvProduct[]> => {
+    const cached = productsByGroup.get(groupId);
+    if (cached) return Promise.resolve(cached);
+    const pending = pendingByGroup.get(groupId);
+    if (pending) return pending;
+
+    const request = requestQueue.then(async () => {
+      if (lastRequestStartedAt !== null) {
+        const remaining =
+          DEFAULT_REQUEST_INTERVAL_MS - (Date.now() - lastRequestStartedAt);
+        await wait(remaining);
+      }
+      lastRequestStartedAt = Date.now();
+      return fetchProducts(groupId, fetchImpl, timeoutMs);
+    });
+    requestQueue = request.then(
+      () => undefined,
+      () => undefined,
+    );
+    const cacheable = request.then((products) => {
+      productsByGroup.set(groupId, products);
+      return products;
+    });
+    pendingByGroup.set(groupId, cacheable);
+    const clearPending = (): void => {
+      if (pendingByGroup.get(groupId) === cacheable) {
+        pendingByGroup.delete(groupId);
+      }
+    };
+    void cacheable.then(clearPending, clearPending);
+    return cacheable;
+  };
+
+  return {
+    async resolveProduct(identity) {
+      const reconciled = reconciledIdentity(identity);
+      const groupId = groupIdFor(
+        identity.catalogSetId,
+        identity.printingVariantKey,
+      );
+      if (!reconciled || !groupId) return null;
+      const products = await loadProducts(groupId);
+      return matchingProduct(reconciled, groupId, products);
+    },
+  };
+}
+
+export async function resolveTcgCsvPokemonProduct(
+  identity: TcgCsvPokemonProductIdentity,
+  options: {
+    fetchImpl?: ArtworkFetch;
+    timeoutMs?: number;
+  } = {},
+): Promise<TcgCsvPokemonProductMatch | null> {
+  return createTcgCsvPokemonClient(options).resolveProduct(identity);
 }

@@ -26,6 +26,7 @@
       "extendedData": [
         { "name": "Rarity", "value": "Common" },
         { "name": "HP", "value": "50" },
+        { "name": "Stage", "value": "Basic" },
         { "name": "CardType", "value": "Water" }
       ]
     },
@@ -39,6 +40,7 @@
       "extendedData": [
         { "name": "Rarity", "value": "Uncommon" },
         { "name": "HP", "value": "50" },
+        { "name": "Stage", "value": "Stage 1" },
         { "name": "CardType", "value": "Fire" }
       ]
     }

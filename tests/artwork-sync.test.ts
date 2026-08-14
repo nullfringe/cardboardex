@@ -384,7 +384,7 @@ describe("Pokémon artwork sync", () => {
     });
   });
 
-  it("uses stored Pokémon elemental type rather than card kind for TCGCSV", async () => {
+  it("uses elemental type and shares one TCGCSV group fetch across cards", async () => {
     const secondProfile = createProfileService(connection.db).createProfile({
       name: "Vintage Japanese Collection",
     });
@@ -411,14 +411,61 @@ describe("Pokémon artwork sync", () => {
         quantity: 1,
       },
     );
+    createCollectionService(connection.db).createCollectionEntry(
+      secondProfile.slug,
+      {
+        gameSlug: "pokemon-tcg",
+        gameName: "Pokémon Trading Card Game",
+        setCode: "JP-PMCG1",
+        setName: "拡張パック",
+        name: "トランセル",
+        canonicalName: "Metapod",
+        collectorNumber: "045",
+        languageCode: "ja",
+        printingVariantKey: "standard",
+        catalogProvider: "tcgdex",
+        catalogSetId: "PMCG1",
+        catalogCardId: "PMCG1-045",
+        cardKind: "Pokémon",
+        subtype: "Stage 1",
+        rarity: "Common",
+        pokemonType: "Grass",
+        hp: 70,
+        quantity: 1,
+      },
+    );
     const card = JSON.parse(japaneseCharmanderFixture) as {
       variants_detailed: Array<Record<string, unknown>>;
     };
     delete card.variants_detailed[0]?.pricing;
+    const metapodCard = {
+      category: "Pokemon",
+      id: "PMCG1-045",
+      localId: "045",
+      name: "トランセル",
+      rarity: "Common",
+      set: { id: "PMCG1", name: "拡張パック" },
+      variants_detailed: [
+        {
+          type: "normal",
+          size: "standard",
+          variantId: "pmcg1-045-regular",
+        },
+      ],
+      hp: 70,
+      stage: "Stage1",
+      types: ["Grass"],
+    };
     const englishFetch = fetchWithVintageFallback();
     const fetchImpl = vi.fn<ArtworkFetch>(async (input, init) => {
       if (input === "https://api.tcgdex.net/v2/ja/cards/PMCG1-014") {
         return new Response(JSON.stringify(card), {
+          status: 200,
+          headers: { "content-type": "application/json" },
+        });
+      }
+      if (input === "https://api.tcgdex.net/v2/ja/cards/PMCG1-045") {
+        return new Response(JSON.stringify(metapodCard), {
           status: 200,
           headers: { "content-type": "application/json" },
         });
@@ -430,8 +477,10 @@ describe("Pokémon artwork sync", () => {
         });
       }
       if (
-        input ===
-          "https://tcgplayer-cdn.tcgplayer.com/product/575573_in_1000x1000.jpg" &&
+        (input ===
+          "https://tcgplayer-cdn.tcgplayer.com/product/575573_in_1000x1000.jpg" ||
+          input ===
+            "https://tcgplayer-cdn.tcgplayer.com/product/575583_in_1000x1000.jpg") &&
         init.method === "HEAD"
       ) {
         return new Response(null, {
@@ -448,8 +497,8 @@ describe("Pokémon artwork sync", () => {
     });
 
     expect(result).toMatchObject({
-      totalPrintings: 70,
-      resolved: 70,
+      totalPrintings: 71,
+      resolved: 71,
       unresolved: 0,
       failed: 0,
     });
@@ -470,6 +519,25 @@ describe("Pokémon artwork sync", () => {
       imageUrl:
         "https://tcgplayer-cdn.tcgplayer.com/product/575573_in_1000x1000.jpg",
     });
+    expect(
+      connection.db
+        .select({
+          imageProvider: cardPrintings.imageProvider,
+          imageExternalId: cardPrintings.imageExternalId,
+        })
+        .from(cardPrintings)
+        .where(eq(cardPrintings.catalogExternalId, "PMCG1-045"))
+        .get(),
+    ).toEqual({
+      imageProvider: TCGCSV_TCGPLAYER_ARTWORK_PROVIDER,
+      imageExternalId:
+        "ja/PMCG1-045/pmcg1-045-regular/tcgcsv-85-23721/tcgplayer-575583",
+    });
+    expect(
+      fetchImpl.mock.calls.filter(
+        ([input]) => input === "https://tcgcsv.com/tcgplayer/85/23721/products",
+      ),
+    ).toHaveLength(1);
   });
 
   it("keeps an unnumbered Japanese card without provider coverage unresolved", async () => {

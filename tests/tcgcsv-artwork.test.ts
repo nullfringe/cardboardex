@@ -5,6 +5,7 @@ import { describe, expect, it, vi } from "vitest";
 
 import type { ArtworkFetch } from "@/lib/images/official-pokemon-artwork";
 import {
+  createTcgCsvPokemonClient,
   isTcgCsvProductsUrl,
   resolveTcgCsvPokemonProduct,
   TcgCsvPokemonArtworkError,
@@ -30,6 +31,20 @@ const charmanderIdentity: TcgCsvPokemonProductIdentity = {
   tcgDexHp: 50,
   tcgDexStage: "Basic",
   tcgDexPokemonType: "Fire",
+};
+
+const metapodIdentity: TcgCsvPokemonProductIdentity = {
+  catalogSetId: "PMCG1",
+  printingVariantKey: "standard",
+  canonicalName: "Metapod",
+  localRarity: "Common",
+  localHp: 70,
+  localStage: "Stage 1",
+  localPokemonType: "Grass",
+  tcgDexRarity: "Common",
+  tcgDexHp: 70,
+  tcgDexStage: "Stage1",
+  tcgDexPokemonType: "Grass",
 };
 
 function productsFetch(
@@ -110,6 +125,38 @@ describe("constrained Japanese vintage TCGCSV products", () => {
     ).resolves.toBeNull();
   });
 
+  it("canonicalizes Stage1 and Stage 1 for evolved products", async () => {
+    const metapodFetch = productsFetch(fixture("tcgcsv-pmcg1-23721"), 23721);
+    await expect(
+      resolveTcgCsvPokemonProduct(metapodIdentity, {
+        fetchImpl: metapodFetch,
+      }),
+    ).resolves.toEqual({ categoryId: 85, groupId: 23721, productId: 575583 });
+
+    const darkCharmeleonFetch = productsFetch(
+      fixture("tcgcsv-pmcg4-23724"),
+      23724,
+    );
+    await expect(
+      resolveTcgCsvPokemonProduct(
+        {
+          catalogSetId: "PMCG4",
+          printingVariantKey: "standard",
+          canonicalName: "Dark Charmeleon",
+          localRarity: "Uncommon",
+          localHp: 50,
+          localStage: "Stage 1",
+          localPokemonType: "Fire",
+          tcgDexRarity: "Uncommon",
+          tcgDexHp: 50,
+          tcgDexStage: "Stage1",
+          tcgDexPokemonType: "Fire",
+        },
+        { fetchImpl: darkCharmeleonFetch },
+      ),
+    ).resolves.toEqual({ categoryId: 85, groupId: 23724, productId: 575759 });
+  });
+
   it("maps PMCG2 to the exact Pokemon Jungle group", async () => {
     const body = JSON.stringify({
       success: true,
@@ -124,6 +171,7 @@ describe("constrained Japanese vintage TCGCSV products", () => {
           extendedData: [
             { name: "Rarity", value: "Uncommon" },
             { name: "HP", value: "70" },
+            { name: "Stage", value: "Stage 2" },
             { name: "CardType", value: "Grass" },
           ],
         },
@@ -138,6 +186,8 @@ describe("constrained Japanese vintage TCGCSV products", () => {
           canonicalName: "Butterfree",
           localRarity: "Uncommon",
           localHp: 70,
+          localStage: "Stage 2",
+          tcgDexStage: "Stage2",
         },
         { fetchImpl },
       ),
@@ -199,6 +249,31 @@ describe("constrained Japanese vintage TCGCSV products", () => {
     ).resolves.toBeNull();
   });
 
+  it("rejects true and unknown stage conflicts without fuzzy matching", async () => {
+    const fetchImpl = vi.fn<ArtworkFetch>();
+    await expect(
+      resolveTcgCsvPokemonProduct(
+        {
+          ...metapodIdentity,
+          localStage: "Stage 1",
+          tcgDexStage: "Stage2",
+        },
+        { fetchImpl },
+      ),
+    ).resolves.toBeNull();
+    await expect(
+      resolveTcgCsvPokemonProduct(
+        {
+          ...metapodIdentity,
+          localStage: "SpecialStage",
+          tcgDexStage: "Special Stage",
+        },
+        { fetchImpl },
+      ),
+    ).resolves.toBeNull();
+    expect(fetchImpl).not.toHaveBeenCalled();
+  });
+
   it("rejects exact-name, HP, rarity, stage, and elemental-type disagreements", async () => {
     const body = fixture("tcgcsv-pmcg1-23721");
     for (const identity of [
@@ -242,6 +317,126 @@ describe("constrained Japanese vintage TCGCSV products", () => {
       ),
     ).resolves.toBeNull();
     expect(fetchImpl).not.toHaveBeenCalled();
+  });
+
+  it("fetches one group once while independently matching several cached cards", async () => {
+    const fetchImpl = productsFetch(fixture("tcgcsv-pmcg1-23721"), 23721);
+    const client = createTcgCsvPokemonClient({ fetchImpl });
+
+    await expect(
+      Promise.all([
+        client.resolveProduct(charmanderIdentity),
+        client.resolveProduct(metapodIdentity),
+        client.resolveProduct({
+          ...charmanderIdentity,
+          canonicalName: "Caterpie",
+          localHp: 40,
+          localPokemonType: "Grass",
+          tcgDexHp: 40,
+          tcgDexPokemonType: "Grass",
+        }),
+      ]),
+    ).resolves.toEqual([
+      { categoryId: 85, groupId: 23721, productId: 575573 },
+      { categoryId: 85, groupId: 23721, productId: 575583 },
+      { categoryId: 85, groupId: 23721, productId: 575572 },
+    ]);
+    expect(fetchImpl).toHaveBeenCalledTimes(1);
+  });
+
+  it("fetches each distinct group once", async () => {
+    const fetchImpl = vi.fn<ArtworkFetch>(async (input) => {
+      const fixtureName = input.includes("/23721/")
+        ? "tcgcsv-pmcg1-23721"
+        : "tcgcsv-pmcg4-23724";
+      return new Response(fixture(fixtureName), {
+        status: 200,
+        headers: { "content-type": "application/json" },
+      });
+    });
+    const client = createTcgCsvPokemonClient({ fetchImpl });
+
+    await expect(client.resolveProduct(charmanderIdentity)).resolves.toEqual({
+      categoryId: 85,
+      groupId: 23721,
+      productId: 575573,
+    });
+    await expect(
+      client.resolveProduct({
+        ...charmanderIdentity,
+        catalogSetId: "PMCG4",
+        localHp: 40,
+        tcgDexHp: 40,
+      }),
+    ).resolves.toEqual({
+      categoryId: 85,
+      groupId: 23724,
+      productId: 575713,
+    });
+    await client.resolveProduct(metapodIdentity);
+    expect(fetchImpl).toHaveBeenCalledTimes(2);
+  });
+
+  it("does not cache a failed non-JSON group response", async () => {
+    let requestCount = 0;
+    const fetchImpl = vi.fn<ArtworkFetch>(async () => {
+      requestCount += 1;
+      return requestCount === 1
+        ? new Response("temporarily throttled", {
+            status: 200,
+            headers: { "content-type": "text/html" },
+          })
+        : new Response(fixture("tcgcsv-pmcg1-23721"), {
+            status: 200,
+            headers: { "content-type": "application/json" },
+          });
+    });
+    const client = createTcgCsvPokemonClient({ fetchImpl });
+
+    await expect(
+      client.resolveProduct(charmanderIdentity),
+    ).rejects.toBeInstanceOf(TcgCsvPokemonArtworkError);
+    await expect(client.resolveProduct(charmanderIdentity)).resolves.toEqual({
+      categoryId: 85,
+      groupId: 23721,
+      productId: 575573,
+    });
+    expect(fetchImpl).toHaveBeenCalledTimes(2);
+  });
+
+  it("paces actual requests to separate groups by at least 250 ms", async () => {
+    vi.useFakeTimers();
+    try {
+      const fetchImpl = vi.fn<ArtworkFetch>(async (input) => {
+        const fixtureName = input.includes("/23721/")
+          ? "tcgcsv-pmcg1-23721"
+          : "tcgcsv-pmcg4-23724";
+        return new Response(fixture(fixtureName), {
+          status: 200,
+          headers: { "content-type": "application/json" },
+        });
+      });
+      const client = createTcgCsvPokemonClient({ fetchImpl });
+      await client.resolveProduct(charmanderIdentity);
+
+      const second = client.resolveProduct({
+        ...charmanderIdentity,
+        catalogSetId: "PMCG4",
+        localHp: 40,
+        tcgDexHp: 40,
+      });
+      await vi.advanceTimersByTimeAsync(249);
+      expect(fetchImpl).toHaveBeenCalledTimes(1);
+      await vi.advanceTimersByTimeAsync(1);
+      await expect(second).resolves.toEqual({
+        categoryId: 85,
+        groupId: 23724,
+        productId: 575713,
+      });
+      expect(fetchImpl).toHaveBeenCalledTimes(2);
+    } finally {
+      vi.useRealTimers();
+    }
   });
 
   it("accepts only the exact HTTPS Pokemon Japan products URL shape", () => {
