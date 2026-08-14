@@ -121,8 +121,8 @@ describe("db:import command", () => {
       profileName: "Ekah",
       profileSlug: "ekah",
       sourceKey: "ekah-collection",
-      importedEntries: 69,
-      importedQuantity: 72,
+      importedEntries: 89,
+      importedQuantity: 93,
       collectionEntries: 0,
       physicalCards: 0,
       dryRun: true,
@@ -146,15 +146,15 @@ describe("db:import command", () => {
 
     const imported = runCollectionImportCommand({ ...options, dryRun: false });
     expect(imported).toMatchObject({
-      collectionEntries: 69,
-      physicalCards: 72,
+      collectionEntries: 89,
+      physicalCards: 93,
       dryRun: false,
     });
 
     connection = createDatabaseConnection(databasePath);
     try {
-      expect(connection.db.select().from(ownedCards).all()).toHaveLength(69);
-      expect(connection.db.select().from(importRecords).all()).toHaveLength(69);
+      expect(connection.db.select().from(ownedCards).all()).toHaveLength(89);
+      expect(connection.db.select().from(importRecords).all()).toHaveLength(89);
     } finally {
       connection.sqlite.close();
     }

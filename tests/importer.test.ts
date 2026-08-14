@@ -154,11 +154,12 @@ describe("collection CSV parsing", () => {
 
     const rows = parseCollectionCsv(fixture);
 
-    expect(rows).toHaveLength(69);
-    expect(rows.reduce((total, row) => total + row.quantity, 0)).toBe(72);
+    expect(rows).toHaveLength(89);
+    expect(rows.reduce((total, row) => total + row.quantity, 0)).toBe(93);
     expect(
       rows.filter((row) => row.quantity === 2).map((row) => row.name),
-    ).toEqual(["Electrike", "Silvally", "Tremendous Bomb"]);
+    ).toEqual(["Silvally", "Tremendous Bomb"]);
+    expect(rows.find((row) => row.name === "Electrike")?.quantity).toBe(3);
   });
 
   it("normalizes blank fields while preserving meaningful zero and Unicode", () => {
@@ -191,32 +192,38 @@ describe("collection CSV parsing", () => {
 
     expect(bulbasaur).toMatchObject({
       rarity: "Illustration Rare",
-      finishVariant: "Mega Evolution stamped promo",
+      finishVariant: null,
       sealed: true,
-      printingVariantKey: "standard",
+      printingVariantKey: "mega-evolution-stamped-promo",
+      printingFinish: null,
     });
     expect(abra).toMatchObject({
       rarity: "Common",
-      finishVariant: "regular non-holo",
+      finishVariant: null,
       sealed: false,
       printingVariantKey: "unlimited",
+      printingFinish: "non-holo",
     });
     expect(abra?.notes).toContain("condition tentatively Moderately Played");
   });
 
   it("keeps vintage publishing variants as distinct printing identities", () => {
     const firstEdition = parseCollectionCsv(
-      fixtureText.replace(
-        "Base Set Unlimited; regular non-holo",
-        "Base Set 1st Edition; regular non-holo",
-      ),
-    ).find((row) => row.name === "Abra");
+      collectionCsv([
+        {
+          "Finish / Variant": "Common; Base Set 1st Edition; regular non-holo",
+          "Printing Variant": "",
+        },
+      ]),
+    )[0];
     const shadowless = parseCollectionCsv(
-      fixtureText.replace(
-        "Base Set Unlimited; regular non-holo",
-        "Base Set Shadowless; regular non-holo",
-      ),
-    ).find((row) => row.name === "Abra");
+      collectionCsv([
+        {
+          "Finish / Variant": "Common; Base Set Shadowless; regular non-holo",
+          "Printing Variant": "",
+        },
+      ]),
+    )[0];
 
     expect(firstEdition).toMatchObject({
       printingVariantKey: "first-edition",
@@ -391,10 +398,10 @@ describe("collection import", () => {
     expect(result).toEqual({
       profileId,
       sourceKey: "data/seed/collection.csv",
-      importedEntries: 69,
-      importedQuantity: 72,
-      collectionEntries: 69,
-      physicalCards: 72,
+      importedEntries: 89,
+      importedQuantity: 93,
+      collectionEntries: 89,
+      physicalCards: 93,
     });
 
     const counts = {
@@ -451,18 +458,20 @@ describe("collection import", () => {
 
     expect(counts).toEqual({
       games: 1,
-      sets: 6,
-      printings: 69,
-      owned: 69,
-      details: 61,
-      attacks: 86,
-      imports: 69,
+      sets: 13,
+      printings: 89,
+      owned: 89,
+      details: 73,
+      attacks: 103,
+      imports: 89,
     });
 
     const bulbasaur = requiredResult(
       connection.db
         .select({
           rarity: cardPrintings.rarity,
+          printingVariantKey: cardPrintings.printingVariantKey,
+          printingFinish: cardPrintings.printingFinish,
           finishVariant: ownedCards.finishVariant,
           sealed: ownedCards.sealed,
           rawRow: importRecords.rawRow,
@@ -478,13 +487,46 @@ describe("collection import", () => {
 
     expect(bulbasaur).toMatchObject({
       rarity: "Illustration Rare",
-      finishVariant: "Mega Evolution stamped promo",
+      printingVariantKey: "mega-evolution-stamped-promo",
+      printingFinish: null,
+      finishVariant: null,
       sealed: true,
     });
     expect(bulbasaur.sourceHash).toMatch(/^[a-f\d]{64}$/u);
     expect(bulbasaur.rawRow["Finish / Variant"]).toBe(
-      "Illustration Rare; Mega Evolution stamped promo; factory sealed",
+      "Illustration Rare; factory sealed",
     );
+    expect(bulbasaur.rawRow["Printing Variant"]).toBe(
+      "mega-evolution-stamped-promo",
+    );
+
+    const provenance = connection.db
+      .select({
+        externalInventoryId: importRecords.externalInventoryId,
+        importedOwnedCardId: importRecords.ownedCardId,
+        ownedCardId: ownedCards.id,
+        printingName: cardPrintings.name,
+        rawRow: importRecords.rawRow,
+      })
+      .from(importRecords)
+      .innerJoin(ownedCards, eq(importRecords.ownedCardId, ownedCards.id))
+      .innerJoin(cardPrintings, eq(ownedCards.printingId, cardPrintings.id))
+      .all();
+    expect(provenance).toHaveLength(89);
+    expect(
+      provenance.every(
+        ({
+          externalInventoryId,
+          importedOwnedCardId,
+          ownedCardId,
+          printingName,
+          rawRow,
+        }) =>
+          importedOwnedCardId === ownedCardId &&
+          externalInventoryId === rawRow["Inventory ID"] &&
+          printingName === rawRow.Name,
+      ),
+    ).toBe(true);
 
     expect(
       connection.db
@@ -502,7 +544,7 @@ describe("collection import", () => {
       profileId,
     });
 
-    expect(result).toMatchObject({ collectionEntries: 69, physicalCards: 72 });
+    expect(result).toMatchObject({ collectionEntries: 89, physicalCards: 93 });
     expect(
       connection.db
         .select({
@@ -514,6 +556,100 @@ describe("collection import", () => {
         .where(eq(cardPrintings.name, "Abra"))
         .get(),
     ).toEqual({ externalReferenceUrl: null, ownedCardId: expect.any(Number) });
+  });
+
+  it("preserves collector identifiers, Prize Pack identities, and assessed finishes", () => {
+    importCollectionCsv(connection.db, fixture, { profileId });
+
+    const importedPrinting = (externalInventoryId: string) =>
+      requiredResult(
+        connection.db
+          .select({
+            printingId: cardPrintings.id,
+            collectorNumber: cardPrintings.collectorNumber,
+            collectorNumberKey: cardPrintings.collectorNumberKey,
+            collectorNumberSort: cardPrintings.collectorNumberSort,
+            printingVariantKey: cardPrintings.printingVariantKey,
+            printingFinish: cardPrintings.printingFinish,
+            notes: ownedCards.notes,
+          })
+          .from(importRecords)
+          .innerJoin(ownedCards, eq(importRecords.ownedCardId, ownedCards.id))
+          .innerJoin(cardPrintings, eq(ownedCards.printingId, cardPrintings.id))
+          .where(
+            and(
+              eq(importRecords.profileId, profileId),
+              eq(importRecords.externalInventoryId, externalInventoryId),
+            ),
+          )
+          .get(),
+        `inventory ${externalInventoryId}`,
+      );
+
+    expect(importedPrinting("79")).toMatchObject({
+      collectorNumber: "087",
+      collectorNumberKey: "87",
+      collectorNumberSort: 87,
+      printingVariantKey: "standard",
+      printingFinish: "Cosmos Holofoil",
+    });
+
+    const standardMoltres = importedPrinting("30");
+    const prizePackMoltres = importedPrinting("87");
+    expect(standardMoltres).toMatchObject({
+      collectorNumber: "014/094",
+      printingVariantKey: "standard",
+    });
+    expect(prizePackMoltres).toMatchObject({
+      collectorNumber: "014/094",
+      printingVariantKey: "play-pokemon-prize-pack-series-nine-right-stamp",
+      printingFinish: null,
+    });
+    expect(prizePackMoltres.printingId).not.toBe(standardMoltres.printingId);
+
+    expect(
+      Object.fromEntries(
+        ["80", "81", "82", "83", "84", "85", "86", "87", "88", "89"].map(
+          (inventoryId) => [
+            inventoryId,
+            importedPrinting(inventoryId).printingVariantKey,
+          ],
+        ),
+      ),
+    ).toEqual({
+      "80": "play-pokemon-prize-pack-series-four-right-stamp",
+      "81": "play-pokemon-prize-pack-series-four-right-stamp",
+      "82": "play-pokemon-prize-pack-series-four-right-stamp",
+      "83": "play-pokemon-prize-pack-series-four-right-stamp",
+      "84": "play-pokemon-prize-pack-series-four-right-stamp",
+      "85": "play-pokemon-prize-pack-series-nine-right-stamp",
+      "86": "play-pokemon-prize-pack-series-nine-right-stamp",
+      "87": "play-pokemon-prize-pack-series-nine-right-stamp",
+      "88": "play-pokemon-prize-pack-series-nine-right-stamp",
+      "89": "play-pokemon-prize-pack-series-nine-right-stamp",
+    });
+
+    expect(
+      Object.fromEntries(
+        ["80", "82", "85", "86", "89"].map((inventoryId) => [
+          inventoryId,
+          importedPrinting(inventoryId).printingFinish,
+        ]),
+      ),
+    ).toEqual({
+      "80": "Cosmos Holofoil",
+      "82": "non-holo",
+      "85": "Cosmos Holofoil",
+      "86": "Pokémon ex foil",
+      "89": "non-holo",
+    });
+
+    for (const inventoryId of ["81", "83", "84", "87", "88"]) {
+      expect(importedPrinting(inventoryId)).toMatchObject({
+        printingFinish: null,
+        notes: expect.stringContaining("Foil status not assessed."),
+      });
+    }
   });
 
   it("keeps vintage blanks, zero retreat cost, and tentative condition as notes", () => {
@@ -576,12 +712,12 @@ describe("collection import", () => {
       "physical-card total",
     ).value;
 
-    expect(secondResult.collectionEntries).toBe(69);
-    expect(secondResult.physicalCards).toBe(72);
+    expect(secondResult.collectionEntries).toBe(89);
+    expect(secondResult.physicalCards).toBe(93);
     expect(ownedIdsAfter).toEqual(ownedIdsBefore);
-    expect(physicalCards).toBe(72);
+    expect(physicalCards).toBe(93);
     expect(connection.db.select().from(profiles).all()).toHaveLength(1);
-    expect(connection.db.select().from(importRecords).all()).toHaveLength(69);
+    expect(connection.db.select().from(importRecords).all()).toHaveLength(89);
   });
 
   it("does not mutate the database when file validation fails", () => {
@@ -619,12 +755,12 @@ describe("collection import", () => {
     });
 
     expect(first).toMatchObject({
-      collectionEntries: 69,
-      physicalCards: 72,
+      collectionEntries: 89,
+      physicalCards: 93,
     });
     expect(second).toMatchObject({
-      collectionEntries: 69,
-      physicalCards: 74,
+      collectionEntries: 89,
+      physicalCards: 95,
     });
     expect(
       requiredResult(
@@ -634,7 +770,7 @@ describe("collection import", () => {
           .get(),
         "printing count",
       ).value,
-    ).toBe(69);
+    ).toBe(89);
     expect(
       requiredResult(
         connection.db
@@ -643,7 +779,7 @@ describe("collection import", () => {
           .get(),
         "import record count",
       ).value,
-    ).toBe(138);
+    ).toBe(178);
 
     const secondOwnedBefore = requiredResult(
       connection.db
@@ -725,7 +861,7 @@ describe("collection import", () => {
         .from(ownedCards)
         .where(eq(ownedCards.profileId, profileId))
         .get(),
-    ).toEqual({ count: 69 });
+    ).toEqual({ count: 89 });
 
     const service = createCollectionService(connection.db);
     expect(
