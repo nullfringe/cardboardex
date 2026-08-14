@@ -70,7 +70,10 @@ export const COLLECTION_CSV_OPTIONAL_HEADERS = [
   "Grid Position",
   "Front Photo",
   "Back Photo",
+  "Condition",
 ] as const;
+
+const MAX_INVENTORY_ID_LENGTH = 200;
 
 export type CollectionCsvHeader =
   | (typeof COLLECTION_CSV_HEADERS)[number]
@@ -98,6 +101,7 @@ export type ParsedCollectionRow = {
   visibleMoveOrEffect2: string | null;
   identificationConfidence: string;
   notes: string | null;
+  condition: string | null;
   deckPool: string | null;
   collectorNumber: string | null;
   collectorNumberKey: string | null;
@@ -474,7 +478,12 @@ function parseRecord(
     rowNumber: csvRowNumber,
   });
   const context = { rowNumber: csvRowNumber, inventoryId };
-  parseInteger(inventoryId, "Inventory ID", context, { minimum: 1 });
+  if (inventoryId.length > MAX_INVENTORY_ID_LENGTH) {
+    throw new CollectionCsvError(
+      `must be at most ${MAX_INVENTORY_ID_LENGTH} characters`,
+      { ...context, field: "Inventory ID" },
+    );
+  }
 
   const quantity = parseInteger(
     requiredCell(rawRow, "Quantity", context),
@@ -621,6 +630,7 @@ function parseRecord(
     ),
     identificationConfidence: requiredCell(rawRow, "ID Confidence", context),
     notes: normalizedCell(rawRow.Notes ?? ""),
+    condition: normalizedCell(rawRow.Condition ?? ""),
     deckPool: normalizedCell(rawRow["Water/Psychic Deck Pool"] ?? ""),
     collectorNumber,
     collectorNumberKey: collectorIdentifierKey(collectorNumber),

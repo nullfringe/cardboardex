@@ -42,6 +42,7 @@ Fresh setup creates **My Collection** and imports the seed into it. An existing 
 | Command                     | Purpose                                                            |
 | --------------------------- | ------------------------------------------------------------------ |
 | `npm run db:init`           | Create/update the SQLite schema without importing cards            |
+| `npm run db:import -- ...`  | Import an evolving CSV into one explicit existing profile          |
 | `npm run db:seed`           | Apply migrations and repeatably import the seed CSV                |
 | `npm run db:setup`          | Initialize and seed a fresh checkout                               |
 | `npm run db:reset -- --yes` | **Delete the local database and rebuild it from the seed fixture** |
@@ -57,6 +58,33 @@ Fresh setup creates **My Collection** and imports the seed into it. An existing 
 | `npm run check`             | Run tests, lint, typecheck, and build                              |
 
 `db:seed` targets the default profile and uses profile-aware import provenance to update fixture-backed entries instead of duplicating them. It never resets the database. The importer requires an explicit target profile ID, so separate profiles may safely reuse the same source and external inventory IDs. `db:reset` is the only destructive database command; it refuses to run without the explicit `--yes` confirmation and permanently removes local edits and manually added cards.
+
+### Importing a real collection
+
+Keep private collection working data under ignored local storage, for example `data/local/ekah/collection.csv`. Do not put real collection CSVs, photo provenance, conditions, future valuations, private notes, or other personal ownership data in `data/seed`; that directory contains only the public development fixture.
+
+First run the real importer as a dry run:
+
+```bash
+npm run db:import -- \
+  --profile ekah \
+  --file data/local/ekah/collection.csv \
+  --source-key ekah-collection \
+  --dry-run
+```
+
+If validation succeeds, run the corresponding import without `--dry-run`:
+
+```bash
+npm run db:import -- \
+  --profile ekah \
+  --file data/local/ekah/collection.csv \
+  --source-key ekah-collection
+```
+
+The profile slug must identify an existing profile; import never creates one implicitly. Keep the source key stable across evolving versions of the same collection even when filenames change. Within that profile and source key, a normalized textual `Inventory ID` identifies the same source-owned ownership lot, so later imports update its quantity, condition, notes, and photo provenance instead of duplicating it. Different profiles remain independent and may reuse the same source key and Inventory ID.
+
+Dry run uses the complete parser and reconciliation path, including printing ambiguity, published-fact conflicts, component validation, and provenance updates, then rolls back the transaction so no changes are committed. Shared `CardPrinting`, set, Pokémon-detail, identifier, and attack facts are reconciled conservatively: missing input preserves known data, compatible input may enrich gaps, and contradictory known facts abort the whole import. The source-owned `OwnedCard` row remains authoritative for its own ownership fields. `db:seed` remains the development-fixture loader and does not replace this explicit real-collection workflow.
 
 Pushes and pull requests targeting `main` are validated by GitHub Actions using `npm run check` and the dependency audit. Run `npm run check` locally before sharing changes. Generated SQLite databases are local runtime data and must never be committed; `data/seed/collection.csv` is the intentionally version-controlled development fixture.
 
@@ -82,7 +110,7 @@ The normalized schema contains:
 
 The seed fixture lives at [`data/seed/collection.csv`](data/seed/collection.csv). Its importer handles the UTF-8 BOM, quoted fields, NFC-normalized Unicode text, blanks, numeric validation, overloaded variant data, and transactional/idempotent writes. The fixture currently derives to 69 collection entries and 72 physical cards; tests assert those fixture acceptance totals rather than embedding them in application logic.
 
-The original 33-column CSV format remains valid and defaults to English. Import files may append optional columns in this order: `Language`, `English Name`, `Catalog Provider`, `Catalog Set ID`, `Catalog Card ID`, `Printing Variant`, `Card Back Design`, `Printing Finish`, `Physical Form`, `Printed Identifiers`, `Component Group Key`, `Component Group Type`, `Component Group Name`, `Expected Component Count`, `Component Key`, `Photo Batch`, `Grid Position`, `Front Photo`, and `Back Photo`. Optional columns form a compatible prefix, so existing six-column international extensions remain valid. `Language` accepts normalized codes such as `en`, `ja`, and other two-letter language/region forms; `English Name` is an optional searchable alias that does not replace the printed name. The three catalog fields are optional as a group. `Collector No.` may contain a non-numeric published identifier or be blank when the physical card is unnumbered. Additional identifiers use semicolon-separated `role: value` entries, such as `species/pokedex-number: No.004`, and never manufacture a collector number. Photo values are audit-friendly source identifiers or filenames; Cardboardex does not require those files to exist at runtime.
+The original 33-column CSV format remains valid and defaults to English. Import files may append optional columns in this order: `Language`, `English Name`, `Catalog Provider`, `Catalog Set ID`, `Catalog Card ID`, `Printing Variant`, `Card Back Design`, `Printing Finish`, `Physical Form`, `Printed Identifiers`, `Component Group Key`, `Component Group Type`, `Component Group Name`, `Expected Component Count`, `Component Key`, `Photo Batch`, `Grid Position`, `Front Photo`, `Back Photo`, and `Condition`. Optional columns form a compatible prefix, so existing six-column international extensions and the previous 52-column cataloging format remain valid. `Language` accepts normalized codes such as `en`, `ja`, and other two-letter language/region forms; `English Name` is an optional searchable alias that does not replace the printed name. The three catalog fields are optional as a group. `Inventory ID` is required normalized provenance text and may be numeric or a stable value such as `EKAH-20260813-B19-A3`. `Collector No.` may contain a non-numeric published identifier or be blank when the physical card is unnumbered. Additional identifiers use semicolon-separated `role: value` entries, such as `species/pokedex-number: No.004`, and never manufacture a collector number. Photo values are audit-friendly source identifiers or filenames; Cardboardex does not require those files to exist at runtime. `Condition` is optional free text stored on the source-owned ownership lot.
 
 Catalog provider/set/card identity is optional enrichment, never a prerequisite for a legitimate locally cataloged printing. Adding a compatible exact catalog identity reconciles the existing CardPrinting in place so ownership, attacks, Pokémon details, artwork, and provenance remain attached. Conflicting identities fail transactionally rather than guessing equivalence from a card name.
 

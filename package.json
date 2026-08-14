@@ -9,6 +9,7 @@
     "build": "next build",
     "start": "next start --hostname 127.0.0.1",
     "db:init": "node --import tsx src/scripts/db-init.ts",
+    "db:import": "node --import tsx src/scripts/db-import.ts",
     "db:seed": "node --import tsx src/scripts/db-seed.ts",
     "db:setup": "npm run db:init && npm run db:seed",
     "db:reset": "node --import tsx src/scripts/db-reset.ts",

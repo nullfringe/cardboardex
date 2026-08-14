@@ -20,10 +20,12 @@ import {
   profiles,
 } from "@/db/schema";
 import {
+  COLLECTION_CSV_HEADERS,
   COLLECTION_CSV_OPTIONAL_HEADERS,
   CollectionCsvError,
   importCollectionCsv,
   parseCollectionCsv,
+  type CollectionCsvHeader,
 } from "@/lib/import";
 import { stablePrintingIdentityKey } from "@/lib/printing-identity";
 import { createProfileService } from "@/lib/services/profile-service";
@@ -44,7 +46,7 @@ function csvCell(value: string): string {
   return `"${value.replaceAll('"', '""')}"`;
 }
 
-function catalogingFixture(): string {
+function catalogingFixture(includeCondition = true): string {
   const [header, firstRow, ...remainingRows] = japaneseFixture
     .toString("utf8")
     .trimEnd()
@@ -63,16 +65,79 @@ function catalogingFixture(): string {
     "A1",
     "IMG_0001-front.jpg",
     "IMG_0001-back.jpg",
+    "Near Mint",
   ];
-  const blankValues = catalogingHeaders.map(() => "");
+  const headers = includeCondition
+    ? catalogingHeaders
+    : catalogingHeaders.slice(0, -1);
+  const values = includeCondition ? firstValues : firstValues.slice(0, -1);
+  const blankValues = headers.map(() => "");
 
   return [
-    `${header},${catalogingHeaders.map(csvCell).join(",")}`,
-    `${firstRow},${firstValues.map(csvCell).join(",")}`,
+    `${header},${headers.map(csvCell).join(",")}`,
+    `${firstRow},${values.map(csvCell).join(",")}`,
     ...remainingRows.map(
       (row) => `${row},${blankValues.map(csvCell).join(",")}`,
     ),
   ].join("\n");
+}
+
+const importHeaders = [
+  ...COLLECTION_CSV_HEADERS,
+  ...COLLECTION_CSV_OPTIONAL_HEADERS,
+];
+
+const baseImportRow: Record<CollectionCsvHeader, string> = Object.fromEntries(
+  importHeaders.map((header) => [header, ""]),
+) as Record<CollectionCsvHeader, string>;
+Object.assign(baseImportRow, {
+  "Inventory ID": "IMPORT-1",
+  "Card Kind": "Pokémon",
+  Name: "Charmander",
+  "TCG Type": "Fire",
+  "Stage / Trainer Subtype": "Basic",
+  HP: "50",
+  Quantity: "1",
+  "Visible Move / Effect 1": "Ember",
+  "ID Confidence": "High",
+  "Collector No.": "46/102",
+  Expansion: "Base Set",
+  "Set ID": "TEST-BASE",
+  "Attack 1 Name": "Ember",
+  "Attack 1 Cost": "Fire Colorless",
+  "Attack 1 Damage": "30",
+  Weakness: "Water ×2",
+  "Retreat Cost": "1",
+  "Finish / Variant": "Common",
+  Language: "en",
+  "Printing Variant": "unlimited",
+});
+
+function collectionCsv(
+  rows: Array<Partial<Record<CollectionCsvHeader, string>>>,
+): string {
+  return [
+    importHeaders.map(csvCell).join(","),
+    ...rows.map((overrides) => {
+      const row = { ...baseImportRow, ...overrides };
+      return importHeaders.map((header) => csvCell(row[header])).join(",");
+    }),
+  ].join("\n");
+}
+
+function tableSnapshot(connection: DatabaseConnection): object {
+  return {
+    games: connection.db.select().from(games).all(),
+    sets: connection.db.select().from(cardSets).all(),
+    printings: connection.db.select().from(cardPrintings).all(),
+    identifiers: connection.db.select().from(printingIdentifiers).all(),
+    groups: connection.db.select().from(printingGroups).all(),
+    members: connection.db.select().from(printingGroupMembers).all(),
+    details: connection.db.select().from(pokemonDetails).all(),
+    attacks: connection.db.select().from(attacks).all(),
+    owned: connection.db.select().from(ownedCards).all(),
+    imports: connection.db.select().from(importRecords).all(),
+  };
 }
 
 function requiredResult<T>(value: T | undefined, description: string): T {
@@ -213,7 +278,29 @@ describe("collection CSV parsing", () => {
       gridPosition: "A1",
       frontPhoto: "IMG_0001-front.jpg",
       backPhoto: "IMG_0001-back.jpg",
+      condition: "Near Mint",
     });
+    expect(
+      parseCollectionCsv(catalogingFixture(false))[0]?.condition,
+    ).toBeNull();
+  });
+
+  it("preserves numeric and normalized textual Inventory IDs as provenance text", () => {
+    const rows = parseCollectionCsv(
+      collectionCsv([
+        { "Inventory ID": "001" },
+        {
+          "Inventory ID": "  EKA\u0301H-20260813-B19-A3  ",
+          "Collector No.": "47/102",
+          Name: "Squirtle",
+        },
+      ]),
+    );
+
+    expect(rows.map((row) => row.inventoryId)).toEqual([
+      "001",
+      "EKÁH-20260813-B19-A3",
+    ]);
   });
 
   it("preserves non-numeric published identifiers without treating embedded digits as a sort number", () => {
@@ -966,5 +1053,404 @@ describe("collection import", () => {
     expect(
       connection.db.select().from(printingGroupMembers).all(),
     ).toHaveLength(1);
+  });
+
+  it("updates evolving textual provenance ownership without crossing profile boundaries", () => {
+    const profileService = createProfileService(connection.db);
+    const ekah = profileService.createProfile({ name: "Ekah" });
+    const sourceKey = "ekah-collection";
+    const inventoryId = "EKAH-20260813-B01-A1";
+    const initial = collectionCsv([
+      {
+        "Inventory ID": inventoryId,
+        Notes: "first photo pass",
+        Condition: "Near Mint",
+        "Photo Batch": "batch-001",
+      },
+    ]);
+
+    importCollectionCsv(connection.db, initial, {
+      profileId: ekah.id,
+      sourceKey,
+    });
+    const before = requiredResult(
+      connection.db
+        .select({
+          importRecordId: importRecords.id,
+          ownedCardId: ownedCards.id,
+          printingId: ownedCards.printingId,
+        })
+        .from(importRecords)
+        .innerJoin(ownedCards, eq(importRecords.ownedCardId, ownedCards.id))
+        .where(eq(importRecords.profileId, ekah.id))
+        .get(),
+      "initial Ekah provenance",
+    );
+
+    const updated = collectionCsv([
+      {
+        "Inventory ID": inventoryId,
+        Quantity: "3",
+        Notes: "second photo pass",
+        Condition: "Lightly Played",
+        "Photo Batch": "batch-002",
+      },
+    ]);
+    const updatedResult = importCollectionCsv(connection.db, updated, {
+      profileId: ekah.id,
+      sourceKey,
+    });
+    const after = requiredResult(
+      connection.db
+        .select({
+          importRecordId: importRecords.id,
+          ownedCardId: ownedCards.id,
+          printingId: ownedCards.printingId,
+          quantity: ownedCards.quantity,
+          condition: ownedCards.condition,
+          notes: ownedCards.notes,
+          metadata: ownedCards.metadata,
+        })
+        .from(importRecords)
+        .innerJoin(ownedCards, eq(importRecords.ownedCardId, ownedCards.id))
+        .where(eq(importRecords.profileId, ekah.id))
+        .get(),
+      "updated Ekah provenance",
+    );
+
+    expect(after).toMatchObject({
+      ...before,
+      quantity: 3,
+      condition: "Lightly Played",
+      notes: "second photo pass",
+      metadata: { photoBatch: "batch-002" },
+    });
+    expect(updatedResult).toMatchObject({
+      collectionEntries: 1,
+      physicalCards: 3,
+    });
+
+    importCollectionCsv(
+      connection.db,
+      collectionCsv([
+        {
+          "Inventory ID": inventoryId,
+          Notes: "my independent copy",
+          Condition: "Damaged",
+        },
+      ]),
+      { profileId, sourceKey },
+    );
+
+    expect(connection.db.select().from(cardPrintings).all()).toHaveLength(1);
+    expect(connection.db.select().from(ownedCards).all()).toHaveLength(2);
+    expect(connection.db.select().from(importRecords).all()).toHaveLength(2);
+    expect(
+      connection.db
+        .select({ quantity: ownedCards.quantity, notes: ownedCards.notes })
+        .from(ownedCards)
+        .where(eq(ownedCards.profileId, profileId))
+        .get(),
+    ).toEqual({ quantity: 1, notes: "my independent copy" });
+    expect(
+      connection.db
+        .select({ quantity: ownedCards.quantity, notes: ownedCards.notes })
+        .from(ownedCards)
+        .where(eq(ownedCards.profileId, ekah.id))
+        .get(),
+    ).toEqual({ quantity: 3, notes: "second photo pass" });
+  });
+
+  it("merges sparse duplicate rows within one CSV and rejects known contradictions", () => {
+    const sparse = {
+      "Inventory ID": "SPARSE-FIRST",
+      "TCG Type": "",
+      HP: "",
+      "Attack 1 Name": "",
+      "Attack 1 Cost": "",
+      "Attack 1 Damage": "",
+      Weakness: "",
+      "Retreat Cost": "",
+      "Finish / Variant": "",
+    } satisfies Partial<Record<CollectionCsvHeader, string>>;
+    const rich = { "Inventory ID": "RICH-SECOND" };
+
+    importCollectionCsv(connection.db, collectionCsv([sparse, rich]), {
+      profileId,
+      sourceKey: "sparse-duplicates",
+    });
+
+    expect(connection.db.select().from(cardPrintings).all()).toHaveLength(1);
+    expect(connection.db.select().from(ownedCards).all()).toHaveLength(2);
+    expect(connection.db.select().from(pokemonDetails).get()).toMatchObject({
+      pokemonType: "Fire",
+      hp: 50,
+      weakness: "Water ×2",
+      retreatCost: 1,
+    });
+    expect(connection.db.select().from(attacks).all()).toMatchObject([
+      { name: "Ember", damage: "30" },
+    ]);
+
+    const beforeConflict = tableSnapshot(connection);
+    expect(() =>
+      importCollectionCsv(
+        connection.db,
+        collectionCsv([
+          { "Inventory ID": "CONFLICT-1", HP: "50" },
+          { "Inventory ID": "CONFLICT-2", HP: "60" },
+        ]),
+        { profileId, sourceKey: "within-file-conflict" },
+      ),
+    ).toThrow(/conflicts with published card facts/u);
+    expect(tableSnapshot(connection)).toEqual(beforeConflict);
+  });
+
+  it("preserves rich shared facts for sparse profile imports and rejects attack conflicts atomically", () => {
+    const ekah = createProfileService(connection.db).createProfile({
+      name: "Ekah",
+    });
+    const rich = collectionCsv([
+      {
+        "Inventory ID": "RICH-1",
+        "English Name": "Charmander",
+        "Collector Source": "https://example.com/cards/charmander",
+        "Card Back Design": "International Pokémon back",
+        "Printing Finish": "regular non-holo",
+        "Physical Form": "standard",
+        "Printed Identifiers": "species/pokedex-number: No.004",
+      },
+    ]);
+    importCollectionCsv(connection.db, rich, {
+      profileId,
+      sourceKey: "my-rich-copy",
+    });
+    const printingBefore = requiredResult(
+      connection.db.select().from(cardPrintings).get(),
+      "rich shared printing",
+    );
+
+    const sparse = collectionCsv([
+      {
+        "Inventory ID": "EKAH-SPARSE-1",
+        "TCG Type": "",
+        HP: "",
+        "English Name": "",
+        "Collector Source": "",
+        "Attack 1 Name": "",
+        "Attack 1 Cost": "",
+        "Attack 1 Damage": "",
+        Weakness: "",
+        "Retreat Cost": "",
+        "Finish / Variant": "",
+        "Card Back Design": "",
+        "Printing Finish": "",
+        "Physical Form": "",
+        "Printed Identifiers": "",
+      },
+    ]);
+    importCollectionCsv(connection.db, sparse, {
+      profileId: ekah.id,
+      sourceKey: "ekah-collection",
+    });
+
+    expect(connection.db.select().from(cardPrintings).all()).toHaveLength(1);
+    expect(connection.db.select().from(ownedCards).all()).toHaveLength(2);
+    expect(connection.db.select().from(cardPrintings).get()).toMatchObject({
+      id: printingBefore.id,
+      canonicalName: "Charmander",
+      rarity: "Common",
+      externalReferenceUrl: "https://example.com/cards/charmander",
+      cardBackDesign: "International Pokémon back",
+      printingFinish: "regular non-holo",
+      physicalForm: "standard",
+    });
+    expect(connection.db.select().from(pokemonDetails).get()).toMatchObject({
+      pokemonType: "Fire",
+      hp: 50,
+      weakness: "Water ×2",
+      retreatCost: 1,
+    });
+    expect(connection.db.select().from(attacks).all()).toMatchObject([
+      { name: "Ember", cost: ["Fire", "Colorless"], damage: "30" },
+    ]);
+    expect(
+      connection.db.select().from(printingIdentifiers).all(),
+    ).toMatchObject([{ role: "species/pokedex-number", value: "No.004" }]);
+
+    importCollectionCsv(
+      connection.db,
+      collectionCsv([
+        {
+          "Inventory ID": "EKAH-EQUIVALENT-2",
+          "Attack 1 Name": "ember",
+          "TCG Type": "fire",
+        },
+      ]),
+      { profileId: ekah.id, sourceKey: "equivalent-facts" },
+    );
+    expect(connection.db.select().from(attacks).get()?.name).toBe("Ember");
+
+    const beforeConflict = tableSnapshot(connection);
+    expect(() =>
+      importCollectionCsv(
+        connection.db,
+        collectionCsv([
+          { "Inventory ID": "EKAH-CONFLICT", "Attack 1 Damage": "40" },
+        ]),
+        { profileId: ekah.id, sourceKey: "attack-conflict" },
+      ),
+    ).toThrow(/conflicts with existing shared published data/u);
+    expect(tableSnapshot(connection)).toEqual(beforeConflict);
+  });
+
+  it("enriches sparse shared facts in place and rolls back realistic dry runs", () => {
+    const sparse = collectionCsv([
+      {
+        "Inventory ID": "SPARSE-ORIGINAL",
+        "Collector No.": "47/102",
+        Name: "Squirtle",
+        "TCG Type": "",
+        HP: "",
+        "Attack 1 Name": "",
+        "Attack 1 Cost": "",
+        "Attack 1 Damage": "",
+        Weakness: "",
+        "Retreat Cost": "",
+        "Finish / Variant": "",
+      },
+    ]);
+    importCollectionCsv(connection.db, sparse, {
+      profileId,
+      sourceKey: "sparse-original",
+    });
+    const sparsePrinting = requiredResult(
+      connection.db.select().from(cardPrintings).get(),
+      "sparse original printing",
+    );
+    const ownershipBefore = connection.db.select().from(ownedCards).all();
+    const rich = collectionCsv([
+      {
+        "Inventory ID": "RICH-ENRICHMENT",
+        "Collector No.": "47/102",
+        Name: "Squirtle",
+        "English Name": "Squirtle",
+        "Printed Identifiers": "species/pokedex-number: No.007",
+      },
+    ]);
+    const beforeDryRun = tableSnapshot(connection);
+
+    const dryRunResult = importCollectionCsv(connection.db, rich, {
+      profileId,
+      sourceKey: "rich-enrichment",
+      dryRun: true,
+    });
+
+    expect(dryRunResult).toMatchObject({
+      importedEntries: 1,
+      importedQuantity: 1,
+      collectionEntries: 1,
+      physicalCards: 1,
+    });
+    expect(tableSnapshot(connection)).toEqual(beforeDryRun);
+
+    importCollectionCsv(connection.db, rich, {
+      profileId,
+      sourceKey: "rich-enrichment",
+    });
+    expect(connection.db.select().from(cardPrintings).get()).toMatchObject({
+      id: sparsePrinting.id,
+      canonicalName: "Squirtle",
+      rarity: "Common",
+    });
+    expect(connection.db.select().from(pokemonDetails).get()).toMatchObject({
+      pokemonType: "Fire",
+      hp: 50,
+    });
+    expect(
+      connection.db
+        .select({ printingId: ownedCards.printingId })
+        .from(ownedCards)
+        .where(eq(ownedCards.id, ownershipBefore[0]!.id))
+        .get(),
+    ).toEqual({ printingId: sparsePrinting.id });
+  });
+
+  it("dry-runs the complete creation path without consuming IDs, then imports it", () => {
+    const input = collectionCsv([
+      {
+        "Inventory ID": "DRY-RUN-COMPLETE",
+        Condition: "Near Mint",
+        "Printed Identifiers": "species/pokedex-number: No.004",
+        "Component Group Key": "starter-scene",
+        "Component Group Type": "multi-card-artwork",
+        "Component Group Name": "Starter Scene",
+        "Expected Component Count": "2",
+        "Component Key": "left",
+      },
+    ]);
+    const before = tableSnapshot(connection);
+
+    importCollectionCsv(connection.db, input, {
+      profileId,
+      sourceKey: "dry-run-complete",
+      dryRun: true,
+    });
+
+    expect(tableSnapshot(connection)).toEqual(before);
+    importCollectionCsv(connection.db, input, {
+      profileId,
+      sourceKey: "dry-run-complete",
+    });
+    expect(connection.db.select().from(cardSets).get()?.id).toBe(1);
+    expect(connection.db.select().from(cardPrintings).get()?.id).toBe(1);
+    expect(connection.db.select().from(printingGroups).get()?.id).toBe(1);
+    expect(connection.db.select().from(pokemonDetails).all()).toHaveLength(1);
+    expect(connection.db.select().from(attacks).all()).toHaveLength(1);
+    expect(connection.db.select().from(printingIdentifiers).all()).toHaveLength(
+      1,
+    );
+    expect(connection.db.select().from(ownedCards).get()).toMatchObject({
+      id: 1,
+      condition: "Near Mint",
+    });
+    expect(connection.db.select().from(importRecords).all()).toHaveLength(1);
+  });
+
+  it("rejects set and Pokémon contradictions without partial mutation", () => {
+    importCollectionCsv(
+      connection.db,
+      collectionCsv([{ "Inventory ID": "KNOWN" }]),
+      {
+        profileId,
+        sourceKey: "known",
+      },
+    );
+    const before = tableSnapshot(connection);
+
+    expect(() =>
+      importCollectionCsv(
+        connection.db,
+        collectionCsv([{ "Inventory ID": "HP-CONFLICT", HP: "60" }]),
+        { profileId, sourceKey: "hp-conflict", dryRun: true },
+      ),
+    ).toThrow(/conflicts with existing shared published data/u);
+    expect(tableSnapshot(connection)).toEqual(before);
+
+    expect(() =>
+      importCollectionCsv(
+        connection.db,
+        collectionCsv([
+          {
+            "Inventory ID": "SET-CONFLICT",
+            "Collector No.": "47/102",
+            Name: "Squirtle",
+            Expansion: "A Different Set Name",
+          },
+        ]),
+        { profileId, sourceKey: "set-conflict" },
+      ),
+    ).toThrow(/conflicts with existing shared published data/u);
+    expect(tableSnapshot(connection)).toEqual(before);
   });
 });

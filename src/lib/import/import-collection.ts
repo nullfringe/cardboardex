@@ -1,6 +1,6 @@
 import { createHash } from "node:crypto";
 
-import { and, eq, gt, isNull, ne, sql } from "drizzle-orm";
+import { and, eq, isNull, ne, sql } from "drizzle-orm";
 
 import type { AppDatabase } from "@/db/client";
 import {
@@ -20,6 +20,7 @@ import {
 } from "@/db/schema";
 import {
   mergePrintingIdentityAttributes,
+  normalizeIdentityPart,
   printingIdentityAttributesCompatible,
   stablePrintingIdentityKey,
 } from "@/lib/printing-identity";
@@ -27,8 +28,13 @@ import {
 import {
   CollectionCsvError,
   parseCollectionCsv,
+  type CollectionCsvHeader,
   type ParsedCollectionRow,
 } from "./collection-csv";
+import {
+  publishedValuesCompatible,
+  reconcilePublishedValue,
+} from "./published-fact-reconciliation";
 
 const DEFAULT_SOURCE_KEY = "data/seed/collection.csv";
 const DEFAULT_GAME_SLUG = "pokemon-tcg";
@@ -39,6 +45,7 @@ export type ImportCollectionOptions = {
   sourceKey?: string;
   gameSlug?: string;
   gameName?: string;
+  dryRun?: boolean;
 };
 
 export type ImportCollectionResult = {
@@ -75,77 +82,275 @@ function hasPokemonDetails(row: ParsedCollectionRow): boolean {
     row.pokemonType,
     row.hp,
     row.evolvesFrom,
-    row.abilityRule,
     row.weakness,
     row.resistance,
     row.retreatCost,
   ].some((value) => value !== null);
 }
 
-function publishedFactsSignature(row: ParsedCollectionRow): string {
-  return JSON.stringify({
-    name: row.name,
-    canonicalName: row.canonicalName,
-    cardKind: row.cardKind,
-    subtype: row.subtype,
-    pokemonType: row.pokemonType,
-    hp: row.hp,
-    specialRuleBox: row.specialRuleBox,
-    rarity: row.rarity,
-    regulationMark: row.regulationMark,
-    externalReferenceUrl: row.externalReferenceUrl,
-    catalogProvider: row.catalogProvider,
-    catalogSetId: row.catalogSetId,
-    catalogCardId: row.catalogCardId,
-    cardBackDesign: row.cardBackDesign,
-    printingFinish: row.printingFinish,
-    physicalForm: row.physicalForm,
-    printedIdentifiers: row.printedIdentifiers,
-    componentGroup: row.componentGroup,
-    evolvesFrom: row.evolvesFrom,
-    abilityRule: row.abilityRule,
-    attacks: row.attacks,
-    weakness: row.weakness,
-    resistance: row.resistance,
-    retreatCost: row.retreatCost,
-    rulesText: row.rulesText,
-  });
+function printingRowsShareBaseIdentity(
+  left: ParsedCollectionRow,
+  right: ParsedCollectionRow,
+): boolean {
+  return (
+    normalizeIdentityPart(left.setCode) ===
+      normalizeIdentityPart(right.setCode) &&
+    normalizeIdentityPart(left.languageCode) ===
+      normalizeIdentityPart(right.languageCode) &&
+    (left.collectorNumberKey ?? normalizeIdentityPart(left.name)) ===
+      (right.collectorNumberKey ?? normalizeIdentityPart(right.name)) &&
+    normalizeIdentityPart(left.printingVariantKey) ===
+      normalizeIdentityPart(right.printingVariantKey)
+  );
+}
+
+function printingRowsCanBeSameIdentity(
+  left: ParsedCollectionRow,
+  right: ParsedCollectionRow,
+): boolean {
+  return (
+    printingRowsShareBaseIdentity(left, right) &&
+    printingIdentityAttributesCompatible(left, right) &&
+    publishedValuesCompatible(
+      left.componentGroup?.groupKey,
+      right.componentGroup?.groupKey,
+    ) &&
+    publishedValuesCompatible(
+      left.componentGroup?.componentKey,
+      right.componentGroup?.componentKey,
+    )
+  );
+}
+
+function rowConflict(
+  row: ParsedCollectionRow,
+  existing: ParsedCollectionRow,
+  field: CollectionCsvHeader,
+): CollectionCsvError {
+  return new CollectionCsvError(
+    `conflicts with published card facts for the same printing on CSV row ${existing.csvRowNumber}`,
+    {
+      rowNumber: row.csvRowNumber,
+      inventoryId: row.inventoryId,
+      field,
+    },
+  );
+}
+
+function assertRowsCompatible(
+  existing: ParsedCollectionRow,
+  row: ParsedCollectionRow,
+): void {
+  const facts = [
+    [existing.name, row.name, "Name"],
+    [existing.canonicalName, row.canonicalName, "English Name"],
+    [existing.cardKind, row.cardKind, "Card Kind"],
+    [existing.subtype, row.subtype, "Stage / Trainer Subtype"],
+    [existing.pokemonType, row.pokemonType, "TCG Type"],
+    [existing.hp, row.hp, "HP"],
+    [existing.specialRuleBox, row.specialRuleBox, "Special / Rule Box"],
+    [existing.rarity, row.rarity, "Finish / Variant"],
+    [existing.regulationMark, row.regulationMark, "Regulation Mark"],
+    [
+      existing.externalReferenceUrl,
+      row.externalReferenceUrl,
+      "Collector Source",
+    ],
+    [existing.catalogProvider, row.catalogProvider, "Catalog Provider"],
+    [existing.catalogSetId, row.catalogSetId, "Catalog Set ID"],
+    [existing.catalogCardId, row.catalogCardId, "Catalog Card ID"],
+    [existing.evolvesFrom, row.evolvesFrom, "Evolves From"],
+    [existing.abilityRule, row.abilityRule, "Ability / Rule"],
+    [existing.weakness, row.weakness, "Weakness"],
+    [existing.resistance, row.resistance, "Resistance"],
+    [existing.retreatCost, row.retreatCost, "Retreat Cost"],
+    [existing.rulesText, row.rulesText, "Trainer / Other Text"],
+    [
+      existing.identificationConfidence,
+      row.identificationConfidence,
+      "ID Confidence",
+    ],
+    [
+      existing.visibleMoveOrEffect1,
+      row.visibleMoveOrEffect1,
+      "Visible Move / Effect 1",
+    ],
+    [
+      existing.visibleMoveOrEffect2,
+      row.visibleMoveOrEffect2,
+      "Visible Move / Effect 2",
+    ],
+    [
+      existing.componentGroup?.groupType,
+      row.componentGroup?.groupType,
+      "Component Group Type",
+    ],
+    [
+      existing.componentGroup?.name,
+      row.componentGroup?.name,
+      "Component Group Name",
+    ],
+    [
+      existing.componentGroup?.expectedComponentCount,
+      row.componentGroup?.expectedComponentCount,
+      "Expected Component Count",
+    ],
+  ] as const;
+
+  for (const [known, incoming, field] of facts) {
+    if (!publishedValuesCompatible(known, incoming)) {
+      throw rowConflict(row, existing, field);
+    }
+  }
+
+  for (const existingAttack of existing.attacks) {
+    const incomingAttack = row.attacks.find(
+      (attack) => attack.position === existingAttack.position,
+    );
+    if (!incomingAttack) continue;
+
+    const attackFacts = [
+      [
+        existingAttack.name,
+        incomingAttack.name,
+        `Attack ${existingAttack.position} Name`,
+      ],
+      [
+        existingAttack.cost,
+        incomingAttack.cost,
+        `Attack ${existingAttack.position} Cost`,
+      ],
+      [
+        existingAttack.damage,
+        incomingAttack.damage,
+        `Attack ${existingAttack.position} Damage`,
+      ],
+      [
+        existingAttack.effect,
+        incomingAttack.effect,
+        `Attack ${existingAttack.position} Effect`,
+      ],
+    ] as const;
+    for (const [known, incoming, field] of attackFacts) {
+      if (!publishedValuesCompatible(known, incoming)) {
+        throw rowConflict(row, existing, field as CollectionCsvHeader);
+      }
+    }
+  }
+
+  for (const role of new Set(
+    existing.printedIdentifiers.map((identifier) => identifier.role),
+  )) {
+    const existingForRole = existing.printedIdentifiers.filter(
+      (identifier) => identifier.role === role,
+    );
+    const incomingForRole = row.printedIdentifiers.filter(
+      (identifier) => identifier.role === role,
+    );
+    if (
+      incomingForRole.length > 0 &&
+      !existingForRole.some((known) =>
+        incomingForRole.some((incoming) =>
+          publishedValuesCompatible(known.value, incoming.value),
+        ),
+      )
+    ) {
+      throw rowConflict(row, existing, "Printed Identifiers");
+    }
+  }
 }
 
 function validatePrintingConsistency(rows: ParsedCollectionRow[]): void {
-  const identities = new Map<
-    string,
-    { row: ParsedCollectionRow; signature: string }
-  >();
+  for (let index = 0; index < rows.length; index += 1) {
+    const row = rows[index]!;
+
+    for (let previousIndex = 0; previousIndex < index; previousIndex += 1) {
+      const existing = rows[previousIndex]!;
+      if (
+        normalizeIdentityPart(existing.setCode) ===
+          normalizeIdentityPart(row.setCode) &&
+        normalizeIdentityPart(existing.languageCode) ===
+          normalizeIdentityPart(row.languageCode)
+      ) {
+        const setFacts = [
+          [existing.expansion, row.expansion, "Expansion"],
+          [existing.catalogProvider, row.catalogProvider, "Catalog Provider"],
+          [existing.catalogSetId, row.catalogSetId, "Catalog Set ID"],
+        ] as const;
+        for (const [known, incoming, field] of setFacts) {
+          if (!publishedValuesCompatible(known, incoming)) {
+            throw rowConflict(row, existing, field);
+          }
+        }
+      }
+
+      if (printingRowsCanBeSameIdentity(existing, row)) {
+        assertRowsCompatible(existing, row);
+      }
+    }
+  }
 
   for (const row of rows) {
-    const identity = [
-      row.catalogProvider && row.catalogCardId
-        ? `${row.catalogProvider}:${row.catalogSetId}:${row.catalogCardId}`
-        : `${row.setCode}:${row.collectorNumberKey ?? row.name}`,
-      row.printingVariantKey,
-      row.printingFinish,
-      row.physicalForm,
-      row.cardBackDesign,
-      row.componentGroup?.groupKey,
-      row.componentGroup?.componentKey,
-      row.languageCode,
-    ].join("\u001f");
-    const signature = publishedFactsSignature(row);
-    const existing = identities.get(identity);
-
-    if (existing && existing.signature !== signature) {
+    const candidates = rows.filter(
+      (candidate) =>
+        candidate !== row && printingRowsCanBeSameIdentity(candidate, row),
+    );
+    const hasDistinctCandidates = candidates.some((candidate, index) =>
+      candidates
+        .slice(index + 1)
+        .some((other) => !printingRowsCanBeSameIdentity(candidate, other)),
+    );
+    if (hasDistinctCandidates) {
       throw new CollectionCsvError(
-        `conflicts with published card facts for the same printing on CSV row ${existing.row.csvRowNumber}`,
+        "matches multiple distinguishable printings in this CSV; add exact identity facts",
         {
           rowNumber: row.csvRowNumber,
           inventoryId: row.inventoryId,
-          field: "Collector No.",
+          field: "Printing Finish",
         },
       );
     }
+  }
+}
 
-    identities.set(identity, { row, signature });
+function reconcileRowValue<T extends string | number | readonly string[]>(
+  existing: T | null | undefined,
+  incoming: T | null | undefined,
+  row: ParsedCollectionRow,
+  field: CollectionCsvHeader,
+): T | null {
+  return reconcilePublishedValue(
+    existing,
+    incoming,
+    () =>
+      new CollectionCsvError("conflicts with existing shared published data", {
+        rowNumber: row.csvRowNumber,
+        inventoryId: row.inventoryId,
+        field,
+      }),
+  );
+}
+
+class DryRunRollback extends Error {
+  constructor() {
+    super("Roll back successful collection import dry run.");
+    this.name = "DryRunRollback";
+  }
+}
+
+function runImportTransaction(
+  db: AppDatabase,
+  dryRun: boolean,
+  work: Parameters<AppDatabase["transaction"]>[0],
+): void {
+  try {
+    db.transaction((tx) => {
+      const result = work(tx);
+      if (dryRun) throw new DryRunRollback();
+      return result;
+    });
+  } catch (error) {
+    if (!(error instanceof DryRunRollback)) throw error;
   }
 }
 
@@ -170,7 +375,18 @@ export function importCollectionCsv(
     throw new Error(`Collection profile ${profileId} does not exist.`);
   }
 
-  const sourceKey = options.sourceKey?.trim() || DEFAULT_SOURCE_KEY;
+  const sourceKey =
+    options.sourceKey === undefined
+      ? DEFAULT_SOURCE_KEY
+      : options.sourceKey.trim().normalize("NFC");
+  if (sourceKey.length === 0) {
+    throw new Error(
+      "A non-empty source key is required for collection import.",
+    );
+  }
+  if (sourceKey.length > 200) {
+    throw new Error("The collection import source key is too long.");
+  }
   const gameSlug = options.gameSlug?.trim() || DEFAULT_GAME_SLUG;
   const gameName = options.gameName?.trim() || DEFAULT_GAME_NAME;
   const rows = parseCollectionCsv(input);
@@ -178,21 +394,29 @@ export function importCollectionCsv(
 
   const sourceHash = createHash("sha256").update(input).digest("hex");
 
-  db.transaction((tx) => {
-    const game = tx
-      .insert(games)
-      .values({ slug: gameSlug, name: gameName })
-      .onConflictDoUpdate({
-        target: games.slug,
-        set: { name: gameName },
-      })
-      .returning({ id: games.id })
+  runImportTransaction(db, options.dryRun === true, (tx) => {
+    let game = tx
+      .select({ id: games.id, name: games.name })
+      .from(games)
+      .where(eq(games.slug, gameSlug))
       .get();
+    if (!game) {
+      game = tx
+        .insert(games)
+        .values({ slug: gameSlug, name: gameName })
+        .returning({ id: games.id, name: games.name })
+        .get();
+    } else if (!publishedValuesCompatible(game.name, gameName)) {
+      throw new Error(
+        `Game ${gameSlug} is already named "${game.name}" and cannot be renamed by collection import.`,
+      );
+    }
 
     for (const row of rows) {
       let cardSet = tx
         .select({
           id: cardSets.id,
+          name: cardSets.name,
           catalogProvider: cardSets.catalogProvider,
           catalogExternalId: cardSets.catalogExternalId,
         })
@@ -218,39 +442,44 @@ export function importCollectionCsv(
           })
           .returning({
             id: cardSets.id,
+            name: cardSets.name,
             catalogProvider: cardSets.catalogProvider,
             catalogExternalId: cardSets.catalogExternalId,
           })
           .get();
       } else {
-        if (
-          row.catalogProvider &&
-          row.catalogSetId &&
-          cardSet.catalogProvider !== null &&
-          (cardSet.catalogProvider !== row.catalogProvider ||
-            cardSet.catalogExternalId !== row.catalogSetId)
-        ) {
-          throw new CollectionCsvError(
-            `conflicts with existing set catalog identity ${cardSet.catalogProvider}/${cardSet.catalogExternalId}`,
-            {
-              rowNumber: row.csvRowNumber,
-              inventoryId: row.inventoryId,
-              field: "Catalog Set ID",
-            },
-          );
-        }
+        const reconciledName = reconcileRowValue(
+          cardSet.name,
+          row.expansion,
+          row,
+          "Expansion",
+        );
+        const reconciledCatalogProvider = reconcileRowValue(
+          cardSet.catalogProvider,
+          row.catalogProvider,
+          row,
+          "Catalog Provider",
+        );
+        const reconciledCatalogExternalId = reconcileRowValue(
+          cardSet.catalogExternalId,
+          row.catalogSetId,
+          row,
+          "Catalog Set ID",
+        );
         tx.update(cardSets)
           .set({
-            name: row.expansion,
-            ...(row.catalogProvider && row.catalogSetId
-              ? {
-                  catalogProvider: row.catalogProvider,
-                  catalogExternalId: row.catalogSetId,
-                }
-              : {}),
+            name: reconciledName!,
+            catalogProvider: reconciledCatalogProvider,
+            catalogExternalId: reconciledCatalogExternalId,
           })
           .where(eq(cardSets.id, cardSet.id))
           .run();
+        cardSet = {
+          ...cardSet,
+          name: reconciledName!,
+          catalogProvider: reconciledCatalogProvider,
+          catalogExternalId: reconciledCatalogExternalId,
+        };
       }
 
       let componentGroup:
@@ -297,39 +526,40 @@ export function importCollectionCsv(
               expectedComponentCount: printingGroups.expectedComponentCount,
             })
             .get();
-        } else if (
-          componentGroup.groupType !== row.componentGroup.groupType ||
-          (componentGroup.name !== null &&
-            row.componentGroup.name !== null &&
-            componentGroup.name !== row.componentGroup.name) ||
-          (componentGroup.expectedComponentCount !== null &&
-            row.componentGroup.expectedComponentCount !== null &&
-            componentGroup.expectedComponentCount !==
-              row.componentGroup.expectedComponentCount)
-        ) {
-          throw new CollectionCsvError(
-            `conflicts with existing component group ${componentGroup.groupKey}`,
-            {
-              rowNumber: row.csvRowNumber,
-              inventoryId: row.inventoryId,
-              field: "Component Group Key",
-            },
+        } else {
+          const reconciledGroupType = reconcileRowValue(
+            componentGroup.groupType,
+            row.componentGroup.groupType,
+            row,
+            "Component Group Type",
           );
-        } else if (
-          (componentGroup.name === null && row.componentGroup.name !== null) ||
-          (componentGroup.expectedComponentCount === null &&
-            row.componentGroup.expectedComponentCount !== null)
-        ) {
+          const reconciledGroupName = reconcileRowValue(
+            componentGroup.name,
+            row.componentGroup.name,
+            row,
+            "Component Group Name",
+          );
+          const reconciledExpectedCount = reconcileRowValue(
+            componentGroup.expectedComponentCount,
+            row.componentGroup.expectedComponentCount,
+            row,
+            "Expected Component Count",
+          );
           tx.update(printingGroups)
             .set({
-              name: componentGroup.name ?? row.componentGroup.name,
-              expectedComponentCount:
-                componentGroup.expectedComponentCount ??
-                row.componentGroup.expectedComponentCount,
+              groupType: reconciledGroupType!,
+              name: reconciledGroupName,
+              expectedComponentCount: reconciledExpectedCount,
               updatedAt: sql`CURRENT_TIMESTAMP`,
             })
             .where(eq(printingGroups.id, componentGroup.id))
             .run();
+          componentGroup = {
+            ...componentGroup,
+            groupType: reconciledGroupType!,
+            name: reconciledGroupName,
+            expectedComponentCount: reconciledExpectedCount,
+          };
         }
       }
 
@@ -468,14 +698,29 @@ export function importCollectionCsv(
         );
       }
 
-      let printing = hasCanonicalExactPrinting ? exactPrinting : candidates[0];
+      const matchedPrinting = hasCanonicalExactPrinting
+        ? exactPrinting
+        : candidates[0];
+      let printing = matchedPrinting
+        ? tx
+            .select()
+            .from(cardPrintings)
+            .where(eq(cardPrintings.id, matchedPrinting.id))
+            .get()
+        : undefined;
       if (
         printing &&
         row.catalogProvider &&
         row.catalogCardId &&
         printing.catalogProvider !== null &&
-        (printing.catalogProvider !== row.catalogProvider ||
-          printing.catalogExternalId !== row.catalogCardId)
+        (!publishedValuesCompatible(
+          printing.catalogProvider,
+          row.catalogProvider,
+        ) ||
+          !publishedValuesCompatible(
+            printing.catalogExternalId,
+            row.catalogCardId,
+          ))
       ) {
         throw new CollectionCsvError(
           `conflicts with existing printing catalog identity ${printing.catalogProvider}/${printing.catalogExternalId}`,
@@ -517,15 +762,7 @@ export function importCollectionCsv(
         printing = tx
           .insert(cardPrintings)
           .values(publishedValues)
-          .returning({
-            id: cardPrintings.id,
-            stableIdentityKey: cardPrintings.stableIdentityKey,
-            catalogProvider: cardPrintings.catalogProvider,
-            catalogExternalId: cardPrintings.catalogExternalId,
-            cardBackDesign: cardPrintings.cardBackDesign,
-            printingFinish: cardPrintings.printingFinish,
-            physicalForm: cardPrintings.physicalForm,
-          })
+          .returning()
           .get();
       } else {
         const resolvedAttributes = mergePrintingIdentityAttributes(
@@ -544,20 +781,149 @@ export function importCollectionCsv(
           )
           .where(eq(printingGroupMembers.printingId, printing.id))
           .get();
+        if (
+          existingComponent &&
+          row.componentGroup &&
+          (!publishedValuesCompatible(
+            existingComponent.groupKey,
+            row.componentGroup.groupKey,
+          ) ||
+            !publishedValuesCompatible(
+              existingComponent.componentKey,
+              row.componentGroup.componentKey,
+            ))
+        ) {
+          throw new CollectionCsvError(
+            "conflicts with existing printing component identity",
+            {
+              rowNumber: row.csvRowNumber,
+              inventoryId: row.inventoryId,
+              field: "Component Key",
+            },
+          );
+        }
+        const reconciledName = reconcileRowValue(
+          printing.name,
+          row.name,
+          row,
+          "Name",
+        );
+        const reconciledCanonicalName = reconcileRowValue(
+          printing.canonicalName,
+          row.canonicalName,
+          row,
+          "English Name",
+        );
+        const reconciledCollectorNumber = reconcileRowValue(
+          printing.collectorNumber,
+          row.collectorNumber,
+          row,
+          "Collector No.",
+        );
+        const reconciledCatalogProvider = reconcileRowValue(
+          printing.catalogProvider,
+          row.catalogProvider,
+          row,
+          "Catalog Provider",
+        );
+        const reconciledCatalogCardId = reconcileRowValue(
+          printing.catalogExternalId,
+          row.catalogCardId,
+          row,
+          "Catalog Card ID",
+        );
+        const reconciledCardKind = reconcileRowValue(
+          printing.cardKind,
+          row.cardKind,
+          row,
+          "Card Kind",
+        );
+        const reconciledSubtype = reconcileRowValue(
+          printing.subtype,
+          row.subtype,
+          row,
+          "Stage / Trainer Subtype",
+        );
+        const reconciledRarity = reconcileRowValue(
+          printing.rarity,
+          row.rarity,
+          row,
+          "Finish / Variant",
+        );
+        const reconciledRegulationMark = reconcileRowValue(
+          printing.regulationMark,
+          row.regulationMark,
+          row,
+          "Regulation Mark",
+        );
+        const reconciledSpecialRuleBox = reconcileRowValue(
+          printing.specialRuleBox,
+          row.specialRuleBox,
+          row,
+          "Special / Rule Box",
+        );
+        const reconciledAbilityRule = reconcileRowValue(
+          printing.abilityRule,
+          row.abilityRule,
+          row,
+          "Ability / Rule",
+        );
+        const reconciledRulesText = reconcileRowValue(
+          printing.rulesText,
+          row.rulesText,
+          row,
+          "Trainer / Other Text",
+        );
+        const reconciledConfidence = reconcileRowValue(
+          printing.identificationConfidence ??
+            printing.metadata.identificationConfidence,
+          row.identificationConfidence,
+          row,
+          "ID Confidence",
+        );
+        const reconciledExternalReferenceUrl = reconcileRowValue(
+          printing.externalReferenceUrl,
+          row.externalReferenceUrl,
+          row,
+          "Collector Source",
+        );
+        const reconciledVisibleMoveOrEffect1 = reconcileRowValue(
+          printing.metadata.visibleMoveOrEffect1,
+          row.visibleMoveOrEffect1,
+          row,
+          "Visible Move / Effect 1",
+        );
+        const reconciledVisibleMoveOrEffect2 = reconcileRowValue(
+          printing.metadata.visibleMoveOrEffect2,
+          row.visibleMoveOrEffect2,
+          row,
+          "Visible Move / Effect 2",
+        );
+        const reconciledMetadata: PrintingMetadata = {
+          ...(reconciledConfidence
+            ? { identificationConfidence: reconciledConfidence }
+            : {}),
+          ...(reconciledVisibleMoveOrEffect1
+            ? { visibleMoveOrEffect1: reconciledVisibleMoveOrEffect1 }
+            : {}),
+          ...(reconciledVisibleMoveOrEffect2
+            ? { visibleMoveOrEffect2: reconciledVisibleMoveOrEffect2 }
+            : {}),
+        };
         const reconciledStableIdentityKey = stablePrintingIdentityKey({
           gameSlug,
           setCode: row.setCode,
-          languageCode: row.languageCode,
-          name: row.name,
-          collectorNumber: row.collectorNumber,
-          printingVariantKey: row.printingVariantKey,
-          catalogProvider: row.catalogProvider ?? printing.catalogProvider,
-          catalogSetId: row.catalogSetId ?? cardSet.catalogExternalId,
-          catalogCardId: row.catalogCardId ?? printing.catalogExternalId,
+          languageCode: printing.languageCode,
+          name: reconciledName!,
+          collectorNumber: reconciledCollectorNumber,
+          printingVariantKey: printing.printingVariantKey,
+          catalogProvider: reconciledCatalogProvider,
+          catalogSetId: cardSet.catalogExternalId,
+          catalogCardId: reconciledCatalogCardId,
           componentGroupKey:
-            row.componentGroup?.groupKey ?? existingComponent?.groupKey,
+            existingComponent?.groupKey ?? row.componentGroup?.groupKey,
           componentKey:
-            row.componentGroup?.componentKey ?? existingComponent?.componentKey,
+            existingComponent?.componentKey ?? row.componentGroup?.componentKey,
           ...resolvedAttributes,
         });
         const keyOwner = tx
@@ -582,13 +948,29 @@ export function importCollectionCsv(
         }
         tx.update(cardPrintings)
           .set({
-            ...publishedValues,
+            name: reconciledName!,
+            canonicalName: reconciledCanonicalName,
+            collectorNumber: reconciledCollectorNumber,
+            collectorNumberKey:
+              printing.collectorNumberKey ?? row.collectorNumberKey,
+            collectorNumberSort:
+              printing.collectorNumber === null && row.collectorNumber !== null
+                ? row.collectorNumberSort
+                : printing.collectorNumberSort,
             stableIdentityKey: reconciledStableIdentityKey,
-            catalogProvider:
-              row.catalogProvider ?? printing.catalogProvider ?? null,
-            catalogExternalId:
-              row.catalogCardId ?? printing.catalogExternalId ?? null,
+            catalogProvider: reconciledCatalogProvider,
+            catalogExternalId: reconciledCatalogCardId,
             ...resolvedAttributes,
+            cardKind: reconciledCardKind!,
+            subtype: reconciledSubtype,
+            rarity: reconciledRarity,
+            regulationMark: reconciledRegulationMark,
+            specialRuleBox: reconciledSpecialRuleBox,
+            abilityRule: reconciledAbilityRule,
+            rulesText: reconciledRulesText,
+            identificationConfidence: reconciledConfidence,
+            externalReferenceUrl: reconciledExternalReferenceUrl,
+            metadata: reconciledMetadata,
             updatedAt: sql`CURRENT_TIMESTAMP`,
           })
           .where(eq(cardPrintings.id, printing.id))
@@ -596,17 +978,69 @@ export function importCollectionCsv(
       }
 
       if (row.printedIdentifiers.length > 0) {
-        tx.insert(printingIdentifiers)
-          .values(
-            row.printedIdentifiers.map((identifier) => ({
-              printingId: printing.id,
-              role: identifier.role,
-              value: identifier.value,
-              label: identifier.label,
-            })),
-          )
-          .onConflictDoNothing()
-          .run();
+        const existingIdentifiers = tx
+          .select()
+          .from(printingIdentifiers)
+          .where(eq(printingIdentifiers.printingId, printing.id))
+          .all();
+        for (const role of new Set(
+          row.printedIdentifiers.map((identifier) => identifier.role),
+        )) {
+          const existingForRole = existingIdentifiers.filter(
+            (identifier) => identifier.role === role,
+          );
+          const incomingForRole = row.printedIdentifiers.filter(
+            (identifier) => identifier.role === role,
+          );
+          if (
+            existingForRole.length > 0 &&
+            !existingForRole.some((existing) =>
+              incomingForRole.some((incoming) =>
+                publishedValuesCompatible(existing.value, incoming.value),
+              ),
+            )
+          ) {
+            throw new CollectionCsvError(
+              `conflicts with existing printed identifier for role ${role}`,
+              {
+                rowNumber: row.csvRowNumber,
+                inventoryId: row.inventoryId,
+                field: "Printed Identifiers",
+              },
+            );
+          }
+        }
+        for (const identifier of row.printedIdentifiers) {
+          const sameRole = existingIdentifiers.filter(
+            (existing) => existing.role === identifier.role,
+          );
+          const matching = sameRole.find((existing) =>
+            publishedValuesCompatible(existing.value, identifier.value),
+          );
+          if (matching) {
+            const reconciledLabel = reconcileRowValue(
+              matching.label,
+              identifier.label,
+              row,
+              "Printed Identifiers",
+            );
+            if (reconciledLabel !== matching.label) {
+              tx.update(printingIdentifiers)
+                .set({ label: reconciledLabel })
+                .where(eq(printingIdentifiers.id, matching.id))
+                .run();
+            }
+          } else {
+            tx.insert(printingIdentifiers)
+              .values({
+                printingId: printing.id,
+                role: identifier.role,
+                value: identifier.value,
+                label: identifier.label,
+              })
+              .run();
+          }
+        }
       }
       if (componentGroup && row.componentGroup) {
         const occupied = tx
@@ -642,7 +1076,12 @@ export function importCollectionCsv(
           .run();
       }
 
-      if (hasPokemonDetails(row)) {
+      const existingPokemonDetails = tx
+        .select()
+        .from(pokemonDetails)
+        .where(eq(pokemonDetails.printingId, printing.id))
+        .get();
+      if (!existingPokemonDetails && hasPokemonDetails(row)) {
         tx.insert(pokemonDetails)
           .values({
             printingId: printing.id,
@@ -653,57 +1092,97 @@ export function importCollectionCsv(
             resistance: row.resistance,
             retreatCost: row.retreatCost,
           })
-          .onConflictDoUpdate({
-            target: pokemonDetails.printingId,
-            set: {
-              pokemonType: row.pokemonType,
-              hp: row.hp,
-              evolvesFrom: row.evolvesFrom,
-              weakness: row.weakness,
-              resistance: row.resistance,
-              retreatCost: row.retreatCost,
-            },
-          })
           .run();
-      } else {
-        tx.delete(pokemonDetails)
+      } else if (existingPokemonDetails) {
+        tx.update(pokemonDetails)
+          .set({
+            pokemonType: reconcileRowValue(
+              existingPokemonDetails.pokemonType,
+              row.pokemonType,
+              row,
+              "TCG Type",
+            ),
+            hp: reconcileRowValue(existingPokemonDetails.hp, row.hp, row, "HP"),
+            evolvesFrom: reconcileRowValue(
+              existingPokemonDetails.evolvesFrom,
+              row.evolvesFrom,
+              row,
+              "Evolves From",
+            ),
+            weakness: reconcileRowValue(
+              existingPokemonDetails.weakness,
+              row.weakness,
+              row,
+              "Weakness",
+            ),
+            resistance: reconcileRowValue(
+              existingPokemonDetails.resistance,
+              row.resistance,
+              row,
+              "Resistance",
+            ),
+            retreatCost: reconcileRowValue(
+              existingPokemonDetails.retreatCost,
+              row.retreatCost,
+              row,
+              "Retreat Cost",
+            ),
+          })
           .where(eq(pokemonDetails.printingId, printing.id))
           .run();
       }
 
+      const existingAttacks = tx
+        .select()
+        .from(attacks)
+        .where(eq(attacks.printingId, printing.id))
+        .all();
       for (const attack of row.attacks) {
-        tx.insert(attacks)
-          .values({
-            printingId: printing.id,
-            position: attack.position,
-            name: attack.name,
-            cost: attack.cost,
-            damage: attack.damage,
-            effect: attack.effect,
-          })
-          .onConflictDoUpdate({
-            target: [attacks.printingId, attacks.position],
-            set: {
+        const existingAttack = existingAttacks.find(
+          (candidate) => candidate.position === attack.position,
+        );
+        if (!existingAttack) {
+          tx.insert(attacks)
+            .values({
+              printingId: printing.id,
+              position: attack.position,
               name: attack.name,
               cost: attack.cost,
               damage: attack.damage,
               effect: attack.effect,
-            },
-          })
-          .run();
-      }
-
-      if (row.attacks.length === 0) {
-        tx.delete(attacks).where(eq(attacks.printingId, printing.id)).run();
-      } else {
-        tx.delete(attacks)
-          .where(
-            and(
-              eq(attacks.printingId, printing.id),
-              gt(attacks.position, row.attacks.length),
-            ),
-          )
-          .run();
+            })
+            .run();
+        } else {
+          tx.update(attacks)
+            .set({
+              name: reconcileRowValue(
+                existingAttack.name,
+                attack.name,
+                row,
+                `Attack ${attack.position} Name` as CollectionCsvHeader,
+              )!,
+              cost: reconcileRowValue(
+                existingAttack.cost,
+                attack.cost,
+                row,
+                `Attack ${attack.position} Cost` as CollectionCsvHeader,
+              ) as string[],
+              damage: reconcileRowValue(
+                existingAttack.damage,
+                attack.damage,
+                row,
+                `Attack ${attack.position} Damage` as CollectionCsvHeader,
+              ),
+              effect: reconcileRowValue(
+                existingAttack.effect,
+                attack.effect,
+                row,
+                `Attack ${attack.position} Effect` as CollectionCsvHeader,
+              ),
+            })
+            .where(eq(attacks.id, existingAttack.id))
+            .run();
+        }
       }
 
       const existingImport = tx
@@ -729,6 +1208,7 @@ export function importCollectionCsv(
           .set({
             printingId: printing.id,
             quantity: row.quantity,
+            condition: row.condition,
             finishVariant: row.finishVariant,
             sealed: row.sealed,
             notes: row.notes,
@@ -758,6 +1238,7 @@ export function importCollectionCsv(
             profileId,
             printingId: printing.id,
             quantity: row.quantity,
+            condition: row.condition,
             finishVariant: row.finishVariant,
             sealed: row.sealed,
             notes: row.notes,

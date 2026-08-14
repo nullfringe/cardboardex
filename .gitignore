@@ -17,6 +17,10 @@ data/*.db-shm
 data/*.db-wal
 data/*.db-journal
 
+# Private local collection working data and backups
+data/local/
+data/backups/
+
 # Local configuration and secrets
 .env*
 !.env.example
