@@ -1,5 +1,6 @@
 import {
   ArrowLeft,
+  CircleDollarSign,
   ExternalLink,
   HeartPulse,
   PackageCheck,
@@ -11,6 +12,7 @@ import {
 import Link from "next/link";
 
 import { languageBadge, languageName } from "@/lib/languages";
+import { estimateLotValue, formatMoney } from "@/lib/pricing/money";
 import type { CollectionDetail } from "@/lib/types/collection";
 import type { Profile } from "@/lib/types/profile";
 
@@ -34,6 +36,19 @@ function Fact({
       <dd>{value}</dd>
     </div>
   );
+}
+
+function providerLabel(provider: string): string {
+  if (provider === "manual") return "Manual estimate";
+  if (provider === "tcgcsv-tcgplayer") return "TCGplayer via TCGCSV";
+  return provider;
+}
+
+function observationDate(value: string): string {
+  const date = new Date(value);
+  return Number.isNaN(date.getTime())
+    ? value
+    : new Intl.DateTimeFormat("en-US", { dateStyle: "medium" }).format(date);
 }
 
 export function CardDetailView({
@@ -202,6 +217,128 @@ export function CardDetailView({
                   ))}
                 </dl>
               ) : null}
+            </section>
+
+            <section
+              className="detail-section market-value-section"
+              aria-labelledby="market-value-heading"
+            >
+              <div className="section-heading section-heading--icon">
+                <span className="section-icon">
+                  <CircleDollarSign size={17} aria-hidden="true" />
+                </span>
+                <div>
+                  <p className="eyebrow">Secondary market</p>
+                  <h2 id="market-value-heading">Estimated value</h2>
+                </div>
+              </div>
+              {card.marketEstimate ? (
+                <>
+                  <div className="market-value__amount">
+                    <strong>
+                      {formatMoney(
+                        card.marketEstimate.unitAmountMinor,
+                        card.marketEstimate.currency,
+                      )}
+                    </strong>
+                    <span>per card</span>
+                  </div>
+                  {card.quantity > 1 ? (
+                    <p className="market-value__lot">
+                      Estimated lot value:{" "}
+                      <strong>
+                        {formatMoney(
+                          estimateLotValue(card.marketEstimate, card.quantity),
+                          card.marketEstimate.currency,
+                        )}
+                      </strong>{" "}
+                      for {card.quantity} cards
+                    </p>
+                  ) : null}
+                  <dl className="fact-grid market-value__facts">
+                    <Fact
+                      label="Source"
+                      value={providerLabel(card.marketEstimate.provider)}
+                    />
+                    <Fact
+                      label="Price basis"
+                      value={card.marketEstimate.basis.replace("-", " ")}
+                    />
+                    <Fact
+                      label="Provider finish"
+                      value={card.marketEstimate.providerVariant}
+                    />
+                    <Fact
+                      label="Checked"
+                      value={observationDate(card.marketEstimate.lastSeenAt)}
+                    />
+                    <Fact
+                      label="Low"
+                      value={
+                        card.marketEstimate.lowPriceMinor === null
+                          ? null
+                          : formatMoney(
+                              card.marketEstimate.lowPriceMinor,
+                              card.marketEstimate.currency,
+                            )
+                      }
+                    />
+                    <Fact
+                      label="Mid"
+                      value={
+                        card.marketEstimate.midPriceMinor === null
+                          ? null
+                          : formatMoney(
+                              card.marketEstimate.midPriceMinor,
+                              card.marketEstimate.currency,
+                            )
+                      }
+                    />
+                    <Fact
+                      label="High"
+                      value={
+                        card.marketEstimate.highPriceMinor === null
+                          ? null
+                          : formatMoney(
+                              card.marketEstimate.highPriceMinor,
+                              card.marketEstimate.currency,
+                            )
+                      }
+                    />
+                  </dl>
+                  {card.marketEstimate.sourceUrl ? (
+                    <a
+                      className="market-value__source"
+                      href={card.marketEstimate.sourceUrl}
+                      rel="noreferrer"
+                      target="_blank"
+                    >
+                      View marketplace listing{" "}
+                      <ExternalLink size={13} aria-hidden="true" />
+                    </a>
+                  ) : null}
+                  {card.marketEstimate.note ? (
+                    <p className="market-value__note">
+                      {card.marketEstimate.note}
+                    </p>
+                  ) : null}
+                  {!card.marketEstimate.manual ? (
+                    <p className="market-value__caveat">
+                      Ungraded market estimate. The provider price is not
+                      adjusted for this copy&apos;s condition.
+                    </p>
+                  ) : null}
+                </>
+              ) : (
+                <div className="market-value__empty">
+                  <p>No exact market estimate is available.</p>
+                  <small>
+                    {card.sealed
+                      ? "Automatic single-card prices are excluded for sealed copies. Add a manual estimate for this owned lot."
+                      : "Run prices:sync again later, or add a manual per-card estimate for this owned lot."}
+                  </small>
+                </div>
+              )}
             </section>
 
             {card.photoBatch ||

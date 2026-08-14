@@ -5,6 +5,7 @@ import {
   type ProfileSearchParameter,
 } from "@/lib/profiles/selection";
 import { getCollectionService } from "@/lib/services/collection-service";
+import { getPricingService } from "@/lib/services/pricing-service";
 import { getProfileService } from "@/lib/services/profile-service";
 import { notFound } from "next/navigation";
 
@@ -27,6 +28,7 @@ export default async function CollectionPage({
   const service = getCollectionService();
   const items = service.listCollection(profile.slug);
   const facets = service.getCollectionFacets(profile.slug);
+  const valuation = getPricingService().summarize(items);
 
   return (
     <div className="app-shell">
@@ -39,6 +41,7 @@ export default async function CollectionPage({
         facets={facets}
         initialItems={items}
         profile={profile}
+        valuation={valuation}
       />
     </div>
   );

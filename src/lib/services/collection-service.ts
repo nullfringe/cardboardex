@@ -3,6 +3,7 @@ import { z } from "zod";
 import { getDatabase, type AppDatabase } from "@/db/client";
 import { applyCardImagePolicy } from "@/lib/images/card-image-provider";
 import { CollectionRepository } from "@/lib/repositories/collection-repository";
+import { PricingRepository } from "@/lib/repositories/pricing-repository";
 import { ProfileRepository } from "@/lib/repositories/profile-repository";
 import { isTrustedCardImageUrl } from "@/lib/security/card-image-policy";
 import {
@@ -279,6 +280,7 @@ export class CollectionService {
   constructor(
     private readonly repository: CollectionRepository,
     private readonly profiles: ProfileRepository,
+    private readonly pricing: PricingRepository,
   ) {}
 
   private profileId(profileSlug: string): number {
@@ -296,9 +298,11 @@ export class CollectionService {
     const parsed = collectionListQuerySchema.parse(
       query,
     ) as CollectionListQuery;
-    return this.repository
-      .list(this.profileId(profileSlug), parsed)
-      .map(applyCardImagePolicy);
+    return this.pricing.attachEstimates(
+      this.repository
+        .list(this.profileId(profileSlug), parsed)
+        .map(applyCardImagePolicy),
+    );
   }
 
   getCollectionEntry(
@@ -309,7 +313,10 @@ export class CollectionService {
       this.profileId(profileSlug),
       positiveId(ownedCardId),
     );
-    return detail ? applyCardImagePolicy(detail) : null;
+    if (!detail) return null;
+    return (
+      this.pricing.attachEstimates([applyCardImagePolicy(detail)])[0] ?? null
+    );
   }
 
   getCollectionFacets(profileSlug: string): CollectionFacets {
@@ -327,7 +334,10 @@ export class CollectionService {
       positiveId(ownedCardId),
       parsed,
     );
-    return detail ? applyCardImagePolicy(detail) : null;
+    if (!detail) return null;
+    return (
+      this.pricing.attachEstimates([applyCardImagePolicy(detail)])[0] ?? null
+    );
   }
 
   deleteCollectionEntry(profileSlug: string, ownedCardId: number): boolean {
@@ -344,9 +354,10 @@ export class CollectionService {
     const parsed = createCollectionEntrySchema.parse(
       input,
     ) as CreateCollectionEntryInput;
-    return applyCardImagePolicy(
+    const detail = applyCardImagePolicy(
       this.repository.create(this.profileId(profileSlug), parsed),
     );
+    return this.pricing.attachEstimates([detail])[0] ?? detail;
   }
 }
 
@@ -354,6 +365,7 @@ export function createCollectionService(db: AppDatabase): CollectionService {
   return new CollectionService(
     new CollectionRepository(db),
     new ProfileRepository(db),
+    new PricingRepository(db),
   );
 }
 

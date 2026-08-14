@@ -1,0 +1,205 @@
+import { count } from "drizzle-orm";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+
+import { createDatabaseConnection, type DatabaseConnection } from "@/db/client";
+import { runMigrations } from "@/db/migrate";
+import { marketPriceObservations } from "@/db/schema";
+import type { MarketPriceFetch } from "@/lib/pricing/tcgcsv-market-pricing";
+import { syncMarketPrices } from "@/lib/pricing/sync-market-prices";
+import { createCollectionService } from "@/lib/services/collection-service";
+import type { CreateCollectionEntryInput } from "@/lib/types/collection";
+
+function cardInput(
+  overrides: Partial<CreateCollectionEntryInput> = {},
+): CreateCollectionEntryInput {
+  return {
+    gameSlug: "pokemon-tcg",
+    gameName: "Pokémon TCG",
+    setCode: "TST",
+    setName: "Test Set",
+    name: "Test Pokémon",
+    collectorNumber: "001/100",
+    printingVariantKey: "standard",
+    printingFinish: "non-holo",
+    cardKind: "Pokémon",
+    rarity: "Common",
+    quantity: 2,
+    ...overrides,
+  };
+}
+
+function syncFetch(marketPrice: number): MarketPriceFetch {
+  return vi.fn<MarketPriceFetch>(async (input) => {
+    const response = (value: unknown) =>
+      new Response(JSON.stringify(value), {
+        status: 200,
+        headers: { "content-type": "application/json" },
+      });
+    if (input === "https://tcgcsv.com/tcgplayer/3/groups") {
+      return response({
+        success: true,
+        errors: [],
+        results: [
+          {
+            categoryId: 3,
+            groupId: 9001,
+            name: "TST: Test Set",
+            abbreviation: "TST",
+          },
+        ],
+      });
+    }
+    if (input === "https://tcgcsv.com/tcgplayer/3/9001/products") {
+      return response({
+        success: true,
+        errors: [],
+        results: [
+          {
+            productId: 7001,
+            name: "Test Pokémon",
+            categoryId: 3,
+            groupId: 9001,
+            url: "https://www.tcgplayer.com/product/7001/test-pokemon",
+            extendedData: [
+              { name: "Number", value: "001/100" },
+              { name: "Rarity", value: "Common" },
+            ],
+          },
+        ],
+      });
+    }
+    if (input === "https://tcgcsv.com/tcgplayer/3/9001/prices") {
+      return response({
+        success: true,
+        errors: [],
+        results: [
+          {
+            productId: 7001,
+            subTypeName: "Normal",
+            lowPrice: 0.1,
+            midPrice: 0.25,
+            highPrice: 1.5,
+            marketPrice,
+            directLowPrice: null,
+          },
+        ],
+      });
+    }
+    throw new Error(`Unexpected test URL: ${input}`);
+  });
+}
+
+describe("market price sync", () => {
+  let connection: DatabaseConnection;
+
+  beforeEach(() => {
+    connection = createDatabaseConnection(":memory:");
+    runMigrations(connection.db);
+    createCollectionService(connection.db).createCollectionEntry(
+      "my-collection",
+      cardInput(),
+    );
+  });
+
+  afterEach(() => connection.sqlite.close());
+
+  it("supports dry run, idempotence, and append-only price changes", async () => {
+    const options = {
+      requestDelayMs: 0,
+      tcgCsvRequestIntervalMs: 0,
+    };
+    const dryRun = await syncMarketPrices(connection.db, {
+      ...options,
+      dryRun: true,
+      fetchImpl: syncFetch(0.2),
+      now: () => new Date("2026-08-14T20:00:00.000Z"),
+    });
+    expect(dryRun).toMatchObject({
+      priced: 1,
+      newObservations: 1,
+      unchangedObservations: 0,
+      dryRun: true,
+    });
+    expect(
+      connection.db
+        .select({ count: count() })
+        .from(marketPriceObservations)
+        .get()?.count,
+    ).toBe(0);
+
+    const first = await syncMarketPrices(connection.db, {
+      ...options,
+      fetchImpl: syncFetch(0.2),
+      now: () => new Date("2026-08-14T20:01:00.000Z"),
+    });
+    expect(first).toMatchObject({
+      priced: 1,
+      newObservations: 1,
+      unchangedObservations: 0,
+    });
+
+    const second = await syncMarketPrices(connection.db, {
+      ...options,
+      fetchImpl: syncFetch(0.2),
+      now: () => new Date("2026-08-14T20:02:00.000Z"),
+    });
+    expect(second).toMatchObject({
+      priced: 1,
+      newObservations: 0,
+      unchangedObservations: 1,
+    });
+    expect(
+      connection.db
+        .select({ count: count() })
+        .from(marketPriceObservations)
+        .get()?.count,
+    ).toBe(1);
+    expect(
+      connection.db.select().from(marketPriceObservations).get()?.lastSeenAt,
+    ).toBe("2026-08-14T20:02:00.000Z");
+
+    const changed = await syncMarketPrices(connection.db, {
+      ...options,
+      fetchImpl: syncFetch(0.35),
+      now: () => new Date("2026-08-14T20:03:00.000Z"),
+    });
+    expect(changed.newObservations).toBe(1);
+    expect(
+      connection.db
+        .select({ count: count() })
+        .from(marketPriceObservations)
+        .get()?.count,
+    ).toBe(2);
+    expect(
+      createCollectionService(connection.db).listCollection("my-collection")[0]
+        ?.marketEstimate,
+    ).toMatchObject({ unitAmountMinor: 35, basis: "market" });
+  });
+
+  it("reports an unmatched printing as unresolved without writing a guess", async () => {
+    const service = createCollectionService(connection.db);
+    service.createCollectionEntry(
+      "my-collection",
+      cardInput({
+        name: "Missing Pokémon",
+        collectorNumber: "002/100",
+      }),
+    );
+
+    const result = await syncMarketPrices(connection.db, {
+      fetchImpl: syncFetch(0.2),
+      requestDelayMs: 0,
+      tcgCsvRequestIntervalMs: 0,
+    });
+    expect(result).toMatchObject({
+      totalPrintings: 2,
+      priced: 1,
+      unresolved: 1,
+      failed: 0,
+    });
+    expect(result.issues[0]).toMatchObject({
+      name: "Missing Pokémon",
+      outcome: "unresolved",
+    });
+  });
+});

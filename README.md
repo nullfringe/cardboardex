@@ -1,6 +1,6 @@
 # Cardboardex
 
-Cardboardex is a visual, local-first trading card collection manager for organizing and browsing the cards you actually own. Local collection profiles keep different owners' cards independent while sharing published card facts and artwork. The current MVP opens directly into a responsive collection grid and supports card details, search, filters, sorting, ownership edits, removal, and simple manual entry.
+Cardboardex is a visual, local-first trading card collection manager for organizing and browsing the cards you actually own. Local collection profiles keep different owners' cards independent while sharing published card facts, artwork, and exact-printing market observations. The current MVP opens directly into a responsive collection grid and supports card details, search, filters, sorting, ownership edits, estimated collection value, removal, and simple manual entry.
 
 The current import and artwork paths support Pokémon TCG data, but the core printing and ownership model is game-agnostic. Pokémon-specific facts live in an extension table rather than defining every card game.
 
@@ -47,6 +47,7 @@ Fresh setup creates an empty **My Collection** profile. Existing databases are m
 | `npm run db:setup`               | Initialize a fresh checkout with an empty collection            |
 | `npm run db:reset -- --yes`      | **Delete the local database and create an empty catalog**       |
 | `npm run artwork:sync`           | Resolve trusted Pokémon artwork into the local database         |
+| `npm run prices:sync -- ...`     | Preview or update exact-printing Pokémon market observations    |
 | `npm run dev`                    | Start the development server on `127.0.0.1`                     |
 | `npm run build`                  | Create a production build                                       |
 | `npm start`                      | Run the production build on `127.0.0.1`                         |
@@ -109,7 +110,8 @@ The normalized schema contains:
 - optional Pokémon details;
 - ordered, structured attack rows with cost, damage, and effect;
 - profiles containing only local owner identity;
-- profile-scoped owned-card lots containing quantity, condition, personal facts, and optional photo filenames/batch positions; and
+- profile-scoped owned-card lots containing quantity, condition, personal facts, and optional photo filenames/batch positions;
+- historical provider and manual market-price observations, scoped either to a shared printing or a particular ownership lot; and
 - profile-scoped import provenance retaining every original CSV field and a source hash.
 
 The collection importer handles the UTF-8 BOM, quoted fields, NFC-normalized Unicode text, blanks, numeric validation, overloaded variant data, and transactional/idempotent writes. Purpose-built fixtures under `tests/fixtures` verify those behaviors without treating a real owner's collection as application seed data.
@@ -150,6 +152,21 @@ Official card images are accepted only from `https://assets.pokemon.com/static-a
 
 Additional trusted providers can still be enabled deliberately with a comma-separated list of exact public HTTPS origins in `CARDBOARDEX_TRUSTED_IMAGE_ORIGINS`. URLs outside the allowlist, non-HTTPS URLs, credentials, and local/private hosts are rejected. Production builds must be rebuilt after changing this configuration so the CSP stays aligned.
 
+## Market valuations
+
+Market pricing is an explicit local enrichment step; setup, imports, tests, builds, and CI never contact a pricing provider. Preview or run it after importing new cards:
+
+```bash
+npm run prices:sync -- --dry-run
+npm run prices:sync
+```
+
+The sync resolves a TCGplayer product through exact TCGdex variant metadata when available, then reads the corresponding TCGCSV product and USD price subtype. It requires an exact set, card, language, printing-variant, and finish match. A missing or ambiguous identity remains unresolved rather than borrowing a price from a similar card, another printing, or another finish. Supported observations retain provider/product identity, currency, market/low/mid/high values, source URL, and first/last-seen timestamps. An unchanged repeat sync updates when the observation was last seen; a changed price appends a new observation, preserving history.
+
+The collection grid shows an estimated total and coverage count, and card details show the selected per-card estimate, quantity-adjusted lot total, price basis, provider, finish, range, observation date, and source. Automatic provider pricing is shared by exact CardPrinting across profiles. Manual estimates are entered from the ownership editor and apply only to that particular owned lot; clearing an override reveals the automatic estimate again without deleting its history. Sealed lots never inherit loose single-card prices automatically, but can receive an explicitly entered manual estimate.
+
+Automatic figures are raw market references, not appraisals. They do not adjust for a card's actual condition, grade, centering, language demand, taxes, fees, shipping, or liquidity. The UI labels this limitation, reports incomplete coverage instead of treating unresolved cards as zero, and keeps currency explicit. TCGCSV currently supplies USD TCGplayer observations; no exchange-rate conversion is performed.
+
 ## Project structure
 
 ```text
@@ -157,6 +174,7 @@ src/app/                 Pages and JSON route handlers
 src/components/          Collection, detail, editor, and artwork UI
 src/db/                  Drizzle schema, connection, and migrations
 src/lib/import/          Strict CSV parsing and normalized collection import
+src/lib/pricing/         Exact market-product resolution and price syncing
 src/lib/repositories/    Typed collection reads and writes
 src/lib/services/        Validation and application operations
 src/lib/images/          Card-image provider boundary
@@ -170,9 +188,7 @@ The MVP edits ownership facts without exposing published printing facts to accid
 
 ### Future work
 
-Likely next iterations include a provider-backed card metadata/image lookup, offline/PWA caching, richer import/export, storage locations, deck building with owned-quantity validation, and price history. Accounts, cloud sync, scanning, and multi-user support remain outside this MVP.
-
-Future valuation should be modeled as observations rather than one timeless value on CardPrinting or OwnedCard. A later pricing boundary should retain the source, currency, as-of timestamp, exact printing, applicable condition/grade, and any low/mid/high or confidence range. This branch deliberately adds no pricing tables, providers, market API calls, or current-value fields.
+Likely next iterations include a provider-backed card metadata/image lookup, offline/PWA caching, richer import/export, storage locations, deck building with owned-quantity validation, and price-history visualization. Accounts, cloud sync, scanning, and multi-user support remain outside this MVP.
 
 ## License
 

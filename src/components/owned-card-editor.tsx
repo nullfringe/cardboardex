@@ -4,6 +4,8 @@ import { Check, Save, Trash2, X } from "lucide-react";
 import { useRouter } from "next/navigation";
 import { type FormEvent, useState } from "react";
 
+import { formatMoney } from "@/lib/pricing/money";
+
 import type {
   CollectionDetail,
   UpdateOwnedCardInput,
@@ -20,6 +22,7 @@ type OwnedCardEditorProps = {
     | "finishVariant"
     | "sealed"
     | "notes"
+    | "marketEstimate"
   >;
 };
 
@@ -41,6 +44,19 @@ export function OwnedCardEditor({ card }: OwnedCardEditorProps) {
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
   const [confirmingDelete, setConfirmingDelete] = useState(false);
   const [deleting, setDeleting] = useState(false);
+  const [manualAmount, setManualAmount] = useState(
+    card.marketEstimate?.manual
+      ? (card.marketEstimate.unitAmountMinor / 100).toFixed(2)
+      : "",
+  );
+  const [manualNote, setManualNote] = useState(
+    card.marketEstimate?.manual ? (card.marketEstimate.note ?? "") : "",
+  );
+  const [manualActive, setManualActive] = useState(
+    card.marketEstimate?.manual ?? false,
+  );
+  const [valuationState, setValuationState] = useState<SaveState>("idle");
+  const [valuationError, setValuationError] = useState<string | null>(null);
 
   async function handleSubmit(
     event: FormEvent<HTMLFormElement>,
@@ -119,6 +135,74 @@ export function OwnedCardEditor({ card }: OwnedCardEditorProps) {
         error instanceof Error
           ? error.message
           : "The collection entry could not be removed.",
+      );
+    }
+  }
+
+  async function handleValuationSubmit(
+    event: FormEvent<HTMLFormElement>,
+  ): Promise<void> {
+    event.preventDefault();
+    setValuationState("saving");
+    setValuationError(null);
+    try {
+      const response = await fetch(
+        `/api/collection/${card.ownedCardId}/valuation?profile=${encodeURIComponent(card.profileSlug)}`,
+        {
+          method: "PUT",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            amount: manualAmount,
+            note: blankToNull(manualNote),
+          }),
+        },
+      );
+      const result = (await response.json()) as { error?: string };
+      if (!response.ok) {
+        throw new Error(
+          result.error ?? "The manual estimate could not be saved.",
+        );
+      }
+      setManualActive(true);
+      setValuationState("saved");
+      router.refresh();
+      window.setTimeout(() => setValuationState("idle"), 1800);
+    } catch (error) {
+      setValuationState("error");
+      setValuationError(
+        error instanceof Error
+          ? error.message
+          : "The manual estimate could not be saved.",
+      );
+    }
+  }
+
+  async function clearManualValuation(): Promise<void> {
+    setValuationState("saving");
+    setValuationError(null);
+    try {
+      const response = await fetch(
+        `/api/collection/${card.ownedCardId}/valuation?profile=${encodeURIComponent(card.profileSlug)}`,
+        { method: "DELETE" },
+      );
+      const result = (await response.json()) as { error?: string };
+      if (!response.ok) {
+        throw new Error(
+          result.error ?? "The manual estimate could not be cleared.",
+        );
+      }
+      setManualActive(false);
+      setManualAmount("");
+      setManualNote("");
+      setValuationState("saved");
+      router.refresh();
+      window.setTimeout(() => setValuationState("idle"), 1800);
+    } catch (error) {
+      setValuationState("error");
+      setValuationError(
+        error instanceof Error
+          ? error.message
+          : "The manual estimate could not be cleared.",
       );
     }
   }
@@ -227,6 +311,84 @@ export function OwnedCardEditor({ card }: OwnedCardEditorProps) {
           >
             <Trash2 size={16} aria-hidden="true" /> Remove
           </button>
+        </div>
+      </form>
+
+      <form
+        className="manual-valuation-form"
+        onSubmit={(event) => void handleValuationSubmit(event)}
+      >
+        <div className="manual-valuation-form__heading">
+          <div>
+            <p className="eyebrow">Per-card override</p>
+            <h3>Manual estimate</h3>
+          </div>
+          {card.marketEstimate &&
+          !card.marketEstimate.manual &&
+          !manualActive ? (
+            <span>
+              Automatic:{" "}
+              {formatMoney(
+                card.marketEstimate.unitAmountMinor,
+                card.marketEstimate.currency,
+              )}
+            </span>
+          ) : null}
+        </div>
+        <label className="field">
+          <span className="field__label">Estimated value (USD)</span>
+          <input
+            min="0"
+            placeholder="0.00"
+            required
+            step="0.01"
+            type="number"
+            value={manualAmount}
+            onChange={(event) => setManualAmount(event.target.value)}
+          />
+        </label>
+        <label className="field">
+          <span className="field__label">Estimate note</span>
+          <input
+            maxLength={1000}
+            placeholder="Comparable sale, appraisal date…"
+            value={manualNote}
+            onChange={(event) => setManualNote(event.target.value)}
+          />
+        </label>
+        <p className="manual-valuation-form__help">
+          This overrides the automatic price for this owned lot and remains
+          clearly labeled as manual.
+        </p>
+        {valuationError ? (
+          <p className="form-message form-message--error" role="alert">
+            {valuationError}
+          </p>
+        ) : null}
+        {valuationState === "saved" ? (
+          <p className="form-message form-message--success" role="status">
+            <Check size={15} aria-hidden="true" /> Valuation updated.
+          </p>
+        ) : null}
+        <div className="manual-valuation-form__actions">
+          <button
+            className="button button--primary"
+            disabled={valuationState === "saving"}
+            type="submit"
+          >
+            <Save size={16} aria-hidden="true" />
+            {valuationState === "saving" ? "Saving…" : "Save estimate"}
+          </button>
+          {manualActive ? (
+            <button
+              className="button button--ghost"
+              disabled={valuationState === "saving"}
+              type="button"
+              onClick={() => void clearManualValuation()}
+            >
+              Clear override
+            </button>
+          ) : null}
         </div>
       </form>
 
