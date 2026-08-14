@@ -48,11 +48,11 @@ export type TcgCsvPokemonProductIdentity = {
   localRarity?: string | null;
   localHp?: number | null;
   localStage?: string | null;
-  localCardType?: string | null;
+  localPokemonType?: string | null;
   tcgDexRarity?: string | null;
   tcgDexHp?: number | null;
   tcgDexStage?: string | null;
-  tcgDexCardType?: string | null;
+  tcgDexPokemonType?: string | null;
 };
 
 export type TcgCsvPokemonProductMatch = {
@@ -71,7 +71,7 @@ type TcgCsvProduct = {
   rarity: string | null;
   hp: number | null;
   stage: string | null;
-  cardType: string | null;
+  pokemonType: string | null;
 };
 
 export class TcgCsvPokemonArtworkError extends Error {
@@ -190,7 +190,7 @@ function parseProduct(value: unknown): TcgCsvProduct | null {
     rarity: optionalText(fields.get("rarity")),
     hp: positiveIntegerFact(fields.get("hp")),
     stage: optionalText(fields.get("stage")),
-    cardType: optionalText(fields.get("cardtype")),
+    pokemonType: optionalText(fields.get("cardtype")),
   };
 }
 
@@ -362,7 +362,7 @@ function candidateMatches(
   rarity: string | null,
   hp: number | null,
   stage: string | null,
-  cardType: string | null,
+  pokemonType: string | null,
 ): boolean {
   if (
     (product.categoryId !== null && product.categoryId !== categoryId) ||
@@ -379,9 +379,9 @@ function candidateMatches(
     return false;
   }
   if (
-    cardType &&
-    product.cardType &&
-    !exactTextMatch(product.cardType, cardType)
+    pokemonType &&
+    product.pokemonType &&
+    !exactTextMatch(product.pokemonType, pokemonType)
   ) {
     return false;
   }
@@ -405,11 +405,16 @@ export async function resolveTcgCsvPokemonProduct(
   const rarity = reconcileTextFact(identity.localRarity, identity.tcgDexRarity);
   const hp = reconcileHpFact(identity.localHp, identity.tcgDexHp);
   const stage = reconcileTextFact(identity.localStage, identity.tcgDexStage);
-  const cardType = reconcileTextFact(
-    identity.localCardType,
-    identity.tcgDexCardType,
+  const pokemonType = reconcileTextFact(
+    identity.localPokemonType,
+    identity.tcgDexPokemonType,
   );
-  if (rarity.conflict || hp.conflict || stage.conflict || cardType.conflict) {
+  if (
+    rarity.conflict ||
+    hp.conflict ||
+    stage.conflict ||
+    pokemonType.conflict
+  ) {
     return null;
   }
 
@@ -423,7 +428,7 @@ export async function resolveTcgCsvPokemonProduct(
       rarity.value,
       hp.value,
       stage.value,
-      cardType.value,
+      pokemonType.value,
     ),
   );
   if (matches.length !== 1) return null;

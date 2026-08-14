@@ -189,7 +189,7 @@ describe("language-aware TCGdex artwork", () => {
           rarity: "Common",
           hp: 50,
           stage: "Basic",
-          cardType: "Pokémon",
+          pokemonType: "Fire",
         },
         { fetchImpl },
       ),
@@ -204,6 +204,108 @@ describe("language-aware TCGdex artwork", () => {
       "https://attacker.example/not-trusted.jpg",
       expect.anything(),
     );
+  });
+
+  it("omits ambiguous multi-type TCGdex metadata instead of choosing one value", async () => {
+    const card = JSON.parse(fixture("tcgdex-ja-pmcg1-014")) as {
+      types: string[];
+      variants_detailed: Array<Record<string, unknown>>;
+    };
+    card.types = ["Water", "Grass"];
+    delete card.variants_detailed[0]?.pricing;
+    const fetchImpl = vi.fn<ArtworkFetch>(async (input, init) => {
+      if (input === "https://api.tcgdex.net/v2/ja/cards/PMCG1-014") {
+        return new Response(JSON.stringify(card), {
+          status: 200,
+          headers: { "content-type": "application/json" },
+        });
+      }
+      if (input === "https://tcgcsv.com/tcgplayer/85/23721/products") {
+        return new Response(fixture("tcgcsv-pmcg1-23721"), {
+          status: 200,
+          headers: { "content-type": "application/json" },
+        });
+      }
+      expect(input).toBe(
+        "https://tcgplayer-cdn.tcgplayer.com/product/575573_in_1000x1000.jpg",
+      );
+      expect(init.method).toBe("HEAD");
+      return new Response(null, {
+        status: 200,
+        headers: { "content-type": "image/jpeg" },
+      });
+    });
+
+    await expect(
+      resolveTcgDexPokemonArtwork(
+        {
+          ...vintageJapaneseIdentity,
+          canonicalName: "Charmander",
+          rarity: "Common",
+          hp: 50,
+          stage: "Basic",
+        },
+        { fetchImpl },
+      ),
+    ).resolves.toMatchObject({
+      provider: TCGCSV_TCGPLAYER_ARTWORK_PROVIDER,
+      url: "https://tcgplayer-cdn.tcgplayer.com/product/575573_in_1000x1000.jpg",
+    });
+    expect(fetchImpl).toHaveBeenCalledTimes(3);
+  });
+
+  it("falls through to TCGCSV when the variant-pricing image fails verification", async () => {
+    const fetchImpl = vi.fn<ArtworkFetch>(async (input, init) => {
+      if (input === "https://api.tcgdex.net/v2/ja/cards/PMCG1-014") {
+        return new Response(fixture("tcgdex-ja-pmcg1-014"), {
+          status: 200,
+          headers: { "content-type": "application/json" },
+        });
+      }
+      if (
+        input ===
+        "https://tcgplayer-cdn.tcgplayer.com/product/90014_in_1000x1000.jpg"
+      ) {
+        expect(init.method).toBe("HEAD");
+        return new Response(null, { status: 404 });
+      }
+      if (input === "https://tcgcsv.com/tcgplayer/85/23721/products") {
+        return new Response(fixture("tcgcsv-pmcg1-23721"), {
+          status: 200,
+          headers: { "content-type": "application/json" },
+        });
+      }
+      expect(input).toBe(
+        "https://tcgplayer-cdn.tcgplayer.com/product/575573_in_1000x1000.jpg",
+      );
+      expect(init).toEqual(
+        expect.objectContaining({ method: "HEAD", redirect: "manual" }),
+      );
+      return new Response(null, {
+        status: 200,
+        headers: { "content-type": "image/jpeg" },
+      });
+    });
+
+    await expect(
+      resolveTcgDexPokemonArtwork(
+        {
+          ...vintageJapaneseIdentity,
+          canonicalName: "Charmander",
+          rarity: "Common",
+          hp: 50,
+          stage: "Basic",
+          pokemonType: "Fire",
+        },
+        { fetchImpl },
+      ),
+    ).resolves.toEqual({
+      url: "https://tcgplayer-cdn.tcgplayer.com/product/575573_in_1000x1000.jpg",
+      provider: TCGCSV_TCGPLAYER_ARTWORK_PROVIDER,
+      externalId:
+        "ja/PMCG1-014/pmcg1-014-regular/tcgcsv-85-23721/tcgplayer-575573",
+    });
+    expect(fetchImpl).toHaveBeenCalledTimes(4);
   });
 
   it("requires exactly one positive product ID on the selected variant", async () => {

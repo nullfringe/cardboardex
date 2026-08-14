@@ -13,7 +13,7 @@
         { "name": "Rarity", "value": "Common" },
         { "name": "HP", "value": "50" },
         { "name": "Stage", "value": "Basic" },
-        { "name": "CardType", "value": "Pokemon" }
+        { "name": "CardType", "value": "Colorless" }
       ]
     },
     {
@@ -27,7 +27,7 @@
         { "name": "Rarity", "value": "Uncommon" },
         { "name": "HP", "value": "40" },
         { "name": "Stage", "value": "Basic" },
-        { "name": "CardType", "value": "Pokemon" }
+        { "name": "CardType", "value": "Colorless" }
       ]
     }
   ]

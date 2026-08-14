@@ -13,7 +13,7 @@
         { "name": "Rarity", "value": "Common" },
         { "name": "HP", "value": "40" },
         { "name": "Stage", "value": "Basic" },
-        { "name": "CardType", "value": "Pokemon" }
+        { "name": "CardType", "value": "Fire" }
       ]
     },
     {
@@ -25,7 +25,8 @@
       "groupId": 23724,
       "extendedData": [
         { "name": "Rarity", "value": "Common" },
-        { "name": "HP", "value": "50" }
+        { "name": "HP", "value": "50" },
+        { "name": "CardType", "value": "Water" }
       ]
     },
     {
@@ -37,7 +38,8 @@
       "groupId": 23724,
       "extendedData": [
         { "name": "Rarity", "value": "Uncommon" },
-        { "name": "HP", "value": "50" }
+        { "name": "HP", "value": "50" },
+        { "name": "CardType", "value": "Fire" }
       ]
     }
   ]

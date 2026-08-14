@@ -384,7 +384,7 @@ describe("Pokémon artwork sync", () => {
     });
   });
 
-  it("passes stored canonical and structured facts to the Japanese TCGCSV bridge", async () => {
+  it("uses stored Pokémon elemental type rather than card kind for TCGCSV", async () => {
     const secondProfile = createProfileService(connection.db).createProfile({
       name: "Vintage Japanese Collection",
     });
@@ -406,6 +406,7 @@ describe("Pokémon artwork sync", () => {
         cardKind: "Pokémon",
         subtype: "Basic",
         rarity: "Common",
+        pokemonType: "Fire",
         hp: 50,
         quantity: 1,
       },

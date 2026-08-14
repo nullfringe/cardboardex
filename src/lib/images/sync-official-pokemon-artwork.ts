@@ -73,7 +73,7 @@ export async function syncPokemonArtwork(
       languageCode: cardPrintings.languageCode,
       rarity: cardPrintings.rarity,
       stage: cardPrintings.subtype,
-      cardType: cardPrintings.cardKind,
+      pokemonType: pokemonDetails.pokemonType,
       hp: pokemonDetails.hp,
       catalogProvider: cardPrintings.catalogProvider,
       catalogCardId: cardPrintings.catalogExternalId,
@@ -162,7 +162,7 @@ export async function syncPokemonArtwork(
               rarity: printing.rarity,
               hp: printing.hp,
               stage: printing.stage,
-              cardType: printing.cardType,
+              pokemonType: printing.pokemonType,
             },
             {
               fetchImpl: options.fetchImpl,

@@ -25,11 +25,11 @@ const charmanderIdentity: TcgCsvPokemonProductIdentity = {
   localRarity: "Common",
   localHp: 50,
   localStage: "Basic",
-  localCardType: "Pokémon",
+  localPokemonType: "Fire",
   tcgDexRarity: "common",
   tcgDexHp: 50,
   tcgDexStage: "Basic",
-  tcgDexCardType: "Pokemon",
+  tcgDexPokemonType: "Fire",
 };
 
 function productsFetch(
@@ -124,6 +124,7 @@ describe("constrained Japanese vintage TCGCSV products", () => {
           extendedData: [
             { name: "Rarity", value: "Uncommon" },
             { name: "HP", value: "70" },
+            { name: "CardType", value: "Grass" },
           ],
         },
       ],
@@ -198,7 +199,7 @@ describe("constrained Japanese vintage TCGCSV products", () => {
     ).resolves.toBeNull();
   });
 
-  it("rejects exact-name, HP, rarity, stage, and card-type disagreements", async () => {
+  it("rejects exact-name, HP, rarity, stage, and elemental-type disagreements", async () => {
     const body = fixture("tcgcsv-pmcg1-23721");
     for (const identity of [
       { ...charmanderIdentity, canonicalName: "Bulbasaur" },
@@ -215,8 +216,8 @@ describe("constrained Japanese vintage TCGCSV products", () => {
       },
       {
         ...charmanderIdentity,
-        localCardType: "Trainer",
-        tcgDexCardType: "Trainer",
+        localPokemonType: "Water",
+        tcgDexPokemonType: "Water",
       },
     ]) {
       const fetchImpl = productsFetch(body, 23721);

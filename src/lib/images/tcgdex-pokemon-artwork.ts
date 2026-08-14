@@ -29,7 +29,7 @@ export type TcgDexPokemonArtworkIdentity = {
   rarity?: string | null;
   hp?: number | null;
   stage?: string | null;
-  cardType?: string | null;
+  pokemonType?: string | null;
 };
 
 export type TcgDexPokemonArtwork = {
@@ -58,7 +58,7 @@ type TcgDexCard = {
   rarity: string | null;
   hp: number | null;
   stage: string | null;
-  cardType: string | null;
+  pokemonType: string | null;
 };
 
 export class TcgDexPokemonArtworkError extends Error {
@@ -101,6 +101,17 @@ function optionalPositiveInteger(value: unknown): number | null {
     : null;
 }
 
+function uniquePokemonType(value: unknown): string | null {
+  if (!Array.isArray(value)) return null;
+  const types = new Map<string, string>();
+  for (const candidate of value) {
+    if (typeof candidate !== "string" || !candidate.trim()) continue;
+    const type = candidate.trim();
+    types.set(normalized(type), type);
+  }
+  return types.size === 1 ? (types.values().next().value ?? null) : null;
+}
+
 function parseVariant(value: unknown): TcgDexVariant | null {
   if (!isRecord(value)) return null;
   const stampsValue = value.stamp ?? value.stamps;
@@ -141,7 +152,7 @@ function parseCard(value: unknown): TcgDexCard {
     rarity: typeof value.rarity === "string" ? value.rarity : null,
     hp: optionalPositiveInteger(value.hp),
     stage: typeof value.stage === "string" ? value.stage : null,
-    cardType: typeof value.category === "string" ? value.category : null,
+    pokemonType: uniquePokemonType(value.types),
   };
 }
 
@@ -339,13 +350,13 @@ export async function resolveTcgDexPokemonArtwork(
       fetchImpl,
       timeoutMs,
     );
-    if (!url) return null;
-
-    return {
-      url,
-      provider: TCGDEX_TCGPLAYER_ARTWORK_PROVIDER,
-      externalId: `${languageCode}/${card.id}/${variant.variantId}/tcgplayer-${productId}`,
-    };
+    if (url) {
+      return {
+        url,
+        provider: TCGDEX_TCGPLAYER_ARTWORK_PROVIDER,
+        externalId: `${languageCode}/${card.id}/${variant.variantId}/tcgplayer-${productId}`,
+      };
+    }
   }
 
   const tcgCsvProduct = await resolveTcgCsvPokemonProduct(
@@ -356,11 +367,11 @@ export async function resolveTcgDexPokemonArtwork(
       localRarity: identity.rarity,
       localHp: identity.hp,
       localStage: identity.stage,
-      localCardType: identity.cardType,
+      localPokemonType: identity.pokemonType,
       tcgDexRarity: card.rarity,
       tcgDexHp: card.hp,
       tcgDexStage: card.stage,
-      tcgDexCardType: card.cardType,
+      tcgDexPokemonType: card.pokemonType,
     },
     { fetchImpl, timeoutMs },
   );
