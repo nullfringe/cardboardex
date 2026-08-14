@@ -4,6 +4,7 @@ import path from "node:path";
 import { createDatabaseConnection, resolveDatabasePath } from "@/db/client";
 import { runMigrations } from "@/db/migrate";
 import { importCollectionCsv } from "@/lib/import";
+import { DEFAULT_PROFILE_NAME } from "@/lib/repositories/profile-repository";
 import { createProfileService } from "@/lib/services/profile-service";
 
 const seedPath = path.resolve(process.cwd(), "data/seed/collection.csv");
@@ -17,6 +18,11 @@ function main(): void {
   try {
     runMigrations(connection.db);
     const profile = createProfileService(connection.db).ensureDefaultProfile();
+    if (profile.name !== DEFAULT_PROFILE_NAME) {
+      throw new Error(
+        `Refusing to load the public development seed into renamed collection "${profile.name}". Use collection:sync for personal collection updates.`,
+      );
+    }
     const result = importCollectionCsv(connection.db, csv, {
       profileId: profile.id,
       sourceKey,

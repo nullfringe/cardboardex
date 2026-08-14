@@ -7,6 +7,10 @@ import { afterEach, describe, expect, it, vi } from "vitest";
 import { proxy } from "@/proxy";
 import { apiErrorResponse } from "@/lib/api/error-response";
 import {
+  MAX_COLLECTION_CSV_UPLOAD_BYTES,
+  parseCollectionCsvUpload,
+} from "@/lib/import/collection-upload";
+import {
   applyCardImagePolicy,
   storedMetadataImageProvider,
 } from "@/lib/images/card-image-provider";
@@ -183,6 +187,62 @@ describe("same-origin JSON mutations", () => {
 
     expect(result.ok).toBe(false);
     if (!result.ok) expect(result.response.status).toBe(413);
+  });
+});
+
+describe("same-origin collection CSV uploads", () => {
+  function collectionUploadRequest(
+    body: FormData,
+    headers: Record<string, string> = {},
+  ): Request {
+    return new Request(`${localOrigin}/api/profiles/ekah/import?mode=preview`, {
+      method: "POST",
+      headers: {
+        host: "127.0.0.1:3000",
+        origin: localOrigin,
+        "sec-fetch-site": "same-origin",
+        ...headers,
+      },
+      body,
+    });
+  }
+
+  it("accepts a same-origin CSV file", async () => {
+    const body = new FormData();
+    body.set(
+      "file",
+      new Blob(["Inventory ID\n1\n"], { type: "text/csv" }),
+      "collection.csv",
+    );
+
+    const result = await parseCollectionCsvUpload(
+      collectionUploadRequest(body),
+    );
+
+    expect(result.ok).toBe(true);
+    if (result.ok) {
+      expect(result.filename).toBe("collection.csv");
+      expect(result.csv.toString("utf8")).toBe("Inventory ID\n1\n");
+    }
+  });
+
+  it("rejects cross-origin and oversized collection uploads", async () => {
+    const body = new FormData();
+    body.set("file", new Blob(["x"]), "collection.csv");
+
+    const crossOrigin = await parseCollectionCsvUpload(
+      collectionUploadRequest(body, { origin: "https://attacker.example" }),
+    );
+    expect(crossOrigin.ok).toBe(false);
+    if (!crossOrigin.ok) expect(crossOrigin.response.status).toBe(403);
+
+    const oversized = await parseCollectionCsvUpload(
+      collectionUploadRequest(body, {
+        "content-length": String(MAX_COLLECTION_CSV_UPLOAD_BYTES + 65_537),
+      }),
+    );
+    expect(oversized.ok).toBe(false);
+    if (!oversized.ok) expect(oversized.response.status).toBe(413);
   });
 });
 

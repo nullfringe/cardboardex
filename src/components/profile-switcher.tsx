@@ -22,6 +22,22 @@ type DeleteProfileResult = {
   error?: string;
 };
 
+type CollectionSyncResult = {
+  profileName: string;
+  profileSlug: string;
+  filename: string;
+  mode: "preview" | "apply";
+  importedEntries: number;
+  importedQuantity: number;
+  collectionEntries: number;
+  physicalCards: number;
+  createdEntries: number;
+  matchedEntries: number;
+  missingEntries: number;
+  backupPath: string | null;
+  error?: string;
+};
+
 export function ProfileSwitcher({
   activeProfile,
   initialProfiles,
@@ -32,6 +48,9 @@ export function ProfileSwitcher({
   const [createName, setCreateName] = useState("");
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [collectionFile, setCollectionFile] = useState<File | null>(null);
+  const [collectionSync, setCollectionSync] =
+    useState<CollectionSyncResult | null>(null);
   const [deleteConfirmationProfileSlug, setDeleteConfirmationProfileSlug] =
     useState<string | null>(null);
   const [previousProfileSlug, setPreviousProfileSlug] = useState(
@@ -41,6 +60,8 @@ export function ProfileSwitcher({
   if (activeProfile.slug !== previousProfileSlug) {
     setPreviousProfileSlug(activeProfile.slug);
     setDeleteConfirmationProfileSlug(null);
+    setCollectionFile(null);
+    setCollectionSync(null);
   }
 
   const confirmingDelete = deleteConfirmationProfileSlug === activeProfile.slug;
@@ -197,6 +218,39 @@ export function ProfileSwitcher({
     }
   }
 
+  async function uploadCollectionCsv(mode: "preview" | "apply"): Promise<void> {
+    if (!collectionFile) {
+      setError("Choose a CSV file first.");
+      return;
+    }
+
+    setBusy(true);
+    setError(null);
+    try {
+      const body = new FormData();
+      body.set("file", collectionFile);
+      const response = await fetch(
+        `/api/profiles/${encodeURIComponent(activeProfile.slug)}/import?mode=${mode}`,
+        { method: "POST", body },
+      );
+      const result = (await response.json()) as CollectionSyncResult;
+      if (!response.ok) {
+        throw new Error(result.error ?? "Collection CSV import failed.");
+      }
+
+      setCollectionSync(result);
+      if (mode === "apply") router.refresh();
+    } catch (caught) {
+      setError(
+        caught instanceof Error
+          ? caught.message
+          : "Collection CSV import failed.",
+      );
+    } finally {
+      setBusy(false);
+    }
+  }
+
   return (
     <div className="profile-controls">
       <label className="profile-select">
@@ -236,6 +290,76 @@ export function ProfileSwitcher({
               </button>
             </div>
           </form>
+          <form
+            className="profile-manager__import"
+            onSubmit={(event) => {
+              event.preventDefault();
+              void uploadCollectionCsv("preview");
+            }}
+          >
+            <label htmlFor="import-collection">
+              Update this collection from CSV
+            </label>
+            <small>
+              Preview first. Existing rows missing from the CSV are preserved.
+            </small>
+            <input
+              accept=".csv,text/csv"
+              id="import-collection"
+              key={activeProfile.slug}
+              name="file"
+              required
+              type="file"
+              onChange={(event) => {
+                setCollectionFile(event.target.files?.[0] ?? null);
+                setCollectionSync(null);
+                setError(null);
+              }}
+            />
+            <button className="button button--small" disabled={busy}>
+              {busy ? "Checking…" : "Preview CSV"}
+            </button>
+          </form>
+          {collectionSync ? (
+            <section className="profile-manager__import-preview">
+              <strong>
+                {collectionSync.mode === "preview"
+                  ? "Import preview"
+                  : "Import complete"}
+              </strong>
+              <span>
+                {collectionSync.importedEntries} rows ·{" "}
+                {collectionSync.importedQuantity} physical cards
+              </span>
+              <span>
+                {collectionSync.createdEntries} new ·{" "}
+                {collectionSync.matchedEntries} matched existing
+              </span>
+              <span>
+                Result: {collectionSync.collectionEntries} printings ·{" "}
+                {collectionSync.physicalCards} physical cards
+              </span>
+              {collectionSync.missingEntries > 0 ? (
+                <span className="profile-manager__import-warning">
+                  {collectionSync.missingEntries} existing imported rows are
+                  absent from this CSV and will remain unchanged.
+                </span>
+              ) : null}
+              {collectionSync.backupPath ? (
+                <span>Backup: {collectionSync.backupPath}</span>
+              ) : null}
+              {collectionSync.mode === "preview" ? (
+                <button
+                  className="button button--primary button--small"
+                  disabled={busy}
+                  type="button"
+                  onClick={() => void uploadCollectionCsv("apply")}
+                >
+                  {busy ? "Importing…" : `Import into ${activeProfile.name}`}
+                </button>
+              ) : null}
+            </section>
+          ) : null}
           <form onSubmit={(event) => void createProfile(event)}>
             <label htmlFor="create-profile">New collection</label>
             <div>

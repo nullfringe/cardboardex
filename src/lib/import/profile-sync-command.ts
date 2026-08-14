@@ -4,71 +4,63 @@ import { parseArgs } from "node:util";
 
 import { createDatabaseConnection, resolveDatabasePath } from "@/db/client";
 import { runMigrations } from "@/db/migrate";
+import { profileSlugSchema } from "@/lib/services/profile-service";
+
+import { createDatabaseBackup } from "./database-backup";
 import {
-  createProfileService,
-  profileSlugSchema,
-} from "@/lib/services/profile-service";
+  syncProfileCollectionCsv,
+  type ProfileCollectionSyncResult,
+} from "./profile-collection-sync";
 
-import {
-  importCollectionCsv,
-  type ImportCollectionResult,
-} from "./import-collection";
-
-const MAX_SOURCE_KEY_LENGTH = 200;
-
-export const COLLECTION_IMPORT_HELP = `Usage:
-  npm run db:import -- --profile <profile-slug> --file <csv-path> --source-key <stable-source-key> [--dry-run]
+export const PROFILE_COLLECTION_SYNC_HELP = `Usage:
+  npm run collection:sync -- --profile <profile-slug> --file <csv-path> [--dry-run]
 
 Options:
   --profile <slug>       Existing target collection profile slug (required)
-  --file <path>          Collection CSV file to import (required)
-  --source-key <key>     Stable provenance key across evolving files (required)
-  --dry-run              Run full reconciliation and roll back all changes
+  --file <path>          Complete collection CSV file to import (required)
+  --dry-run              Validate and preview without changing the database
   --help                 Show this help
 `;
 
-export type CollectionImportCommandOptions = {
-  profileSlug: string;
-  filePath: string;
-  sourceKey: string;
-  dryRun: boolean;
-};
-
-export type CollectionImportCommandResult = ImportCollectionResult & {
-  profileName: string;
+export type ProfileCollectionSyncCommandOptions = {
   profileSlug: string;
   filePath: string;
   dryRun: boolean;
 };
 
-export class CollectionImportCliError extends Error {
+export type ProfileCollectionSyncCommandResult = ProfileCollectionSyncResult & {
+  filePath: string;
+  dryRun: boolean;
+  backupPath: string | null;
+};
+
+export class ProfileCollectionSyncCliError extends Error {
   constructor(message: string, cause?: unknown) {
     super(message, { cause });
-    this.name = "CollectionImportCliError";
+    this.name = "ProfileCollectionSyncCliError";
   }
 }
 
 function requiredOption(
   value: string | undefined,
-  option: "--profile" | "--file" | "--source-key",
+  option: "--profile" | "--file",
 ): string {
   const normalized = value?.trim().normalize("NFC");
   if (!normalized) {
-    throw new CollectionImportCliError(
+    throw new ProfileCollectionSyncCliError(
       `${option} is required. Run with --help for usage.`,
     );
   }
   return normalized;
 }
 
-export function parseCollectionImportArguments(
+export function parseProfileCollectionSyncArguments(
   args: string[],
-): CollectionImportCommandOptions | { help: true } {
+): ProfileCollectionSyncCommandOptions | { help: true } {
   let parsed: {
     values: {
       profile?: string;
       file?: string;
-      "source-key"?: string;
       "dry-run"?: boolean;
       help?: boolean;
     };
@@ -81,13 +73,12 @@ export function parseCollectionImportArguments(
       options: {
         profile: { type: "string" },
         file: { type: "string" },
-        "source-key": { type: "string" },
         "dry-run": { type: "boolean", default: false },
         help: { type: "boolean", short: "h", default: false },
       },
     }) as typeof parsed;
   } catch (error) {
-    throw new CollectionImportCliError(
+    throw new ProfileCollectionSyncCliError(
       error instanceof Error ? error.message : String(error),
       error,
     );
@@ -98,103 +89,105 @@ export function parseCollectionImportArguments(
   const profileSlug = requiredOption(parsed.values.profile, "--profile");
   const parsedProfile = profileSlugSchema.safeParse(profileSlug);
   if (!parsedProfile.success) {
-    throw new CollectionImportCliError(
+    throw new ProfileCollectionSyncCliError(
       parsedProfile.error.issues[0]?.message ??
         "Profile identifier is invalid.",
-    );
-  }
-  const filePath = requiredOption(parsed.values.file, "--file");
-  const sourceKey = requiredOption(parsed.values["source-key"], "--source-key");
-  if (sourceKey.length > MAX_SOURCE_KEY_LENGTH) {
-    throw new CollectionImportCliError(
-      `--source-key must be at most ${MAX_SOURCE_KEY_LENGTH} characters.`,
     );
   }
 
   return {
     profileSlug: parsedProfile.data,
-    filePath: path.resolve(filePath),
-    sourceKey,
+    filePath: path.resolve(requiredOption(parsed.values.file, "--file")),
     dryRun: parsed.values["dry-run"] ?? false,
   };
 }
 
-function readImportFile(filePath: string): Buffer {
+function readCollectionFile(filePath: string): Buffer {
   let stat: fs.Stats;
   try {
     stat = fs.statSync(filePath);
   } catch (error) {
-    throw new CollectionImportCliError(
+    throw new ProfileCollectionSyncCliError(
       `Import file does not exist or cannot be inspected: ${filePath}`,
       error,
     );
   }
   if (!stat.isFile()) {
-    throw new CollectionImportCliError(
+    throw new ProfileCollectionSyncCliError(
       `Import path is not a regular file: ${filePath}`,
     );
   }
-
   try {
     fs.accessSync(filePath, fs.constants.R_OK);
     return fs.readFileSync(filePath);
   } catch (error) {
-    throw new CollectionImportCliError(
+    throw new ProfileCollectionSyncCliError(
       `Import file is not readable: ${filePath}`,
       error,
     );
   }
 }
 
-export function runCollectionImportCommand(
-  options: CollectionImportCommandOptions,
-): CollectionImportCommandResult {
-  const csv = readImportFile(options.filePath);
-  const connection = createDatabaseConnection(resolveDatabasePath());
+export async function runProfileCollectionSyncCommand(
+  options: ProfileCollectionSyncCommandOptions,
+): Promise<ProfileCollectionSyncCommandResult> {
+  const csv = readCollectionFile(options.filePath);
+  const databasePath = resolveDatabasePath();
+  const connection = createDatabaseConnection(databasePath);
 
   try {
     runMigrations(connection.db);
-    const profile = createProfileService(connection.db).getProfile(
+    const preview = syncProfileCollectionCsv(
+      connection.db,
       options.profileSlug,
+      csv,
+      { dryRun: true },
     );
-    if (!profile) {
-      throw new CollectionImportCliError(
-        `Collection profile "${options.profileSlug}" does not exist.`,
-      );
+    if (options.dryRun) {
+      return {
+        ...preview,
+        filePath: options.filePath,
+        dryRun: true,
+        backupPath: null,
+      };
     }
 
-    const result = importCollectionCsv(connection.db, csv, {
-      profileId: profile.id,
-      sourceKey: options.sourceKey,
-      dryRun: options.dryRun,
-    });
+    const backup = await createDatabaseBackup(connection.sqlite, databasePath);
+    const imported = syncProfileCollectionCsv(
+      connection.db,
+      options.profileSlug,
+      csv,
+    );
     return {
-      ...result,
-      profileName: profile.name,
-      profileSlug: profile.slug,
+      ...imported,
       filePath: options.filePath,
-      dryRun: options.dryRun,
+      dryRun: false,
+      backupPath: backup?.displayPath ?? null,
     };
   } finally {
     connection.sqlite.close();
   }
 }
 
-export function formatCollectionImportResult(
-  result: CollectionImportCommandResult,
+export function formatProfileCollectionSyncResult(
+  result: ProfileCollectionSyncCommandResult,
 ): string {
   const action = result.dryRun ? "Validated" : "Imported";
   const totalsLabel = result.dryRun
     ? "Projected profile totals"
     : "Profile totals";
   const lines = [
-    `${action} ${result.importedEntries} CSV rows (${result.importedQuantity} physical cards).`,
-    `Target profile: ${result.profileName} (${result.profileSlug})`,
-    `Source key: ${result.sourceKey}`,
+    `${action} ${result.importedEntries} CSV rows (${result.importedQuantity} physical cards) for ${result.profileName}.`,
+    `${result.createdEntries} new rows; ${result.matchedEntries} matched existing rows; ${result.missingEntries} existing source rows absent from the CSV.`,
     `${totalsLabel}: ${result.collectionEntries} collection entries, ${result.physicalCards} physical cards.`,
   ];
   if (result.dryRun) {
     lines.push("Dry run completed successfully; no changes were committed.");
+  } else if (result.backupPath) {
+    lines.push(`Database backup: ${result.backupPath}`);
+  }
+  if (result.missingEntries > 0) {
+    lines.push("Rows absent from the CSV were preserved, not deleted.");
   }
   return lines.join("\n");
 }

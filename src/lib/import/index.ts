@@ -12,3 +12,10 @@ export {
   type ImportCollectionOptions,
   type ImportCollectionResult,
 } from "./import-collection";
+export {
+  MultipleCollectionSourcesError,
+  PRIMARY_COLLECTION_SOURCE_KEY,
+  resolveProfileCollectionSource,
+  syncProfileCollectionCsv,
+  type ProfileCollectionSyncResult,
+} from "./profile-collection-sync";
