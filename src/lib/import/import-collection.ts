@@ -35,8 +35,8 @@ import {
   publishedValuesCompatible,
   reconcilePublishedValue,
 } from "./published-fact-reconciliation";
+import { PRIMARY_COLLECTION_SOURCE_KEY } from "./source-keys";
 
-const DEFAULT_SOURCE_KEY = "data/seed/collection.csv";
 const DEFAULT_GAME_SLUG = "pokemon-tcg";
 const DEFAULT_GAME_NAME = "Pokémon Trading Card Game";
 
@@ -380,7 +380,7 @@ export function importCollectionCsv(
 
   const sourceKey =
     options.sourceKey === undefined
-      ? DEFAULT_SOURCE_KEY
+      ? PRIMARY_COLLECTION_SOURCE_KEY
       : options.sourceKey.trim().normalize("NFC");
   if (sourceKey.length === 0) {
     throw new Error(

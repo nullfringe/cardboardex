@@ -2,10 +2,10 @@ import { z } from "zod";
 
 import { getDatabase, type AppDatabase } from "@/db/client";
 import {
-  DEFAULT_PROFILE_SLUG,
   LastProfileDeletionError,
   ProfileRepository,
 } from "@/lib/repositories/profile-repository";
+import { profileSlugFromName } from "@/lib/profiles/slug";
 import type {
   CreateProfileInput,
   DeleteProfileResult,
@@ -30,14 +30,6 @@ export const profileSlugSchema = z
 const createProfileSchema = z.object({ name: profileName }).strict();
 const updateProfileSchema = z.object({ name: profileName }).strict();
 const duplicateProfileSchema = z.object({ name: profileName }).strict();
-
-function slugify(value: string): string {
-  return value
-    .normalize("NFKD")
-    .toLocaleLowerCase("en-US")
-    .replace(/[^a-z0-9]+/g, "-")
-    .replace(/^-|-$/g, "");
-}
 
 export class ProfileNotFoundError extends Error {
   constructor() {
@@ -69,14 +61,18 @@ export class ProfileService {
 
   createProfile(input: CreateProfileInput): Profile {
     const parsed = createProfileSchema.parse(input);
-    const baseSlug = slugify(parsed.name) || "collection";
+    const baseSlug = profileSlugFromName(parsed.name);
     return this.repository.create(parsed.name, baseSlug);
   }
 
   renameProfile(slug: string, input: UpdateProfileInput): Profile {
     const parsedSlug = profileSlugSchema.parse(slug);
     const parsed = updateProfileSchema.parse(input);
-    const profile = this.repository.rename(parsedSlug, parsed.name);
+    const profile = this.repository.rename(
+      parsedSlug,
+      parsed.name,
+      profileSlugFromName(parsed.name),
+    );
     if (!profile) throw new ProfileNotFoundError();
     return profile;
   }
@@ -84,7 +80,7 @@ export class ProfileService {
   duplicateProfile(slug: string, input: DuplicateProfileInput): Profile {
     const parsedSlug = profileSlugSchema.parse(slug);
     const parsed = duplicateProfileSchema.parse(input);
-    const baseSlug = slugify(parsed.name) || "collection";
+    const baseSlug = profileSlugFromName(parsed.name);
     const profile = this.repository.duplicate(
       parsedSlug,
       parsed.name,
@@ -99,10 +95,7 @@ export class ProfileService {
   ): DeleteProfileResult & { fallbackProfile: Profile } {
     const deleted = this.repository.delete(profileSlugSchema.parse(slug));
     if (!deleted) throw new ProfileNotFoundError();
-    const fallbackProfile =
-      deleted.remainingProfiles.find(
-        (profile) => profile.slug === DEFAULT_PROFILE_SLUG,
-      ) ?? deleted.remainingProfiles[0];
+    const fallbackProfile = deleted.remainingProfiles[0];
     if (!fallbackProfile) throw new LastProfileDeletionError();
 
     return { ...deleted, fallbackProfile };

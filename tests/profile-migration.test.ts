@@ -151,3 +151,70 @@ describe("collection profile migration", () => {
     expect(connection.sqlite.pragma("foreign_key_check")).toEqual([]);
   });
 });
+
+describe("canonical profile slug migration", () => {
+  let connection: DatabaseConnection;
+  let previousMigrationsPath: string;
+
+  beforeEach(() => {
+    connection = createDatabaseConnection(":memory:");
+    previousMigrationsPath = fs.mkdtempSync(
+      path.join(os.tmpdir(), "cardboardex-profile-slug-migrations-"),
+    );
+    fs.mkdirSync(path.join(previousMigrationsPath, "meta"));
+
+    for (const migration of [
+      "0000_initial_schema.sql",
+      "0001_vintage_printing_identity.sql",
+      "0002_collection_profiles.sql",
+      "0003_international_vintage_identity.sql",
+      "0004_printing_cataloging.sql",
+    ]) {
+      fs.copyFileSync(
+        path.join(migrationsPath, migration),
+        path.join(previousMigrationsPath, migration),
+      );
+    }
+
+    const journal = JSON.parse(
+      fs.readFileSync(path.join(migrationsPath, "meta/_journal.json"), "utf8"),
+    ) as { entries: unknown[] } & Record<string, unknown>;
+    fs.writeFileSync(
+      path.join(previousMigrationsPath, "meta/_journal.json"),
+      JSON.stringify({ ...journal, entries: journal.entries.slice(0, 5) }),
+    );
+    migrate(connection.db, { migrationsFolder: previousMigrationsPath });
+  });
+
+  afterEach(() => {
+    connection.sqlite.close();
+    fs.rmSync(previousMigrationsPath, { recursive: true, force: true });
+  });
+
+  it("promotes a renamed legacy profile and preserves its former slug", () => {
+    connection.sqlite
+      .prepare("UPDATE profiles SET name = ? WHERE slug = ?")
+      .run("Thomas", "my-collection");
+
+    runMigrations(connection.db);
+    runMigrations(connection.db);
+
+    expect(
+      connection.sqlite.prepare("SELECT * FROM profiles").all(),
+    ).toMatchObject([{ slug: "thomas", name: "Thomas" }]);
+    expect(
+      connection.sqlite.prepare("SELECT slug FROM profile_slug_aliases").all(),
+    ).toEqual([{ slug: "my-collection" }]);
+  });
+
+  it("leaves the generic fresh profile unchanged", () => {
+    runMigrations(connection.db);
+
+    expect(
+      connection.sqlite.prepare("SELECT * FROM profiles").all(),
+    ).toMatchObject([{ slug: "my-collection", name: "My Collection" }]);
+    expect(
+      connection.sqlite.prepare("SELECT * FROM profile_slug_aliases").all(),
+    ).toEqual([]);
+  });
+});

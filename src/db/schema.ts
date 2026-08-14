@@ -37,6 +37,27 @@ export const profiles = sqliteTable("profiles", {
     .default(sql`CURRENT_TIMESTAMP`),
 });
 
+export const profileSlugAliases = sqliteTable(
+  "profile_slug_aliases",
+  {
+    id: integer("id").primaryKey({ autoIncrement: true }),
+    profileId: integer("profile_id")
+      .notNull()
+      .references(() => profiles.id, {
+        onDelete: "cascade",
+        onUpdate: "cascade",
+      }),
+    slug: text("slug").notNull(),
+    createdAt: text("created_at")
+      .notNull()
+      .default(sql`CURRENT_TIMESTAMP`),
+  },
+  (table) => [
+    uniqueIndex("profile_slug_aliases_slug_unique").on(table.slug),
+    index("profile_slug_aliases_profile_index").on(table.profileId),
+  ],
+);
+
 export const games = sqliteTable("games", {
   id: integer("id").primaryKey({ autoIncrement: true }),
   slug: text("slug").notNull().unique(),

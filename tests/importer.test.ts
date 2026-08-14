@@ -31,7 +31,10 @@ import { stablePrintingIdentityKey } from "@/lib/printing-identity";
 import { createProfileService } from "@/lib/services/profile-service";
 import { createCollectionService } from "@/lib/services/collection-service";
 
-const fixturePath = path.resolve(process.cwd(), "data/seed/collection.csv");
+const fixturePath = path.resolve(
+  process.cwd(),
+  "tests/fixtures/collection-import.csv",
+);
 const fixture = fs.readFileSync(fixturePath);
 const fixtureText = fixture.toString("utf8");
 const japaneseFixture = fs.readFileSync(
@@ -154,8 +157,8 @@ describe("collection CSV parsing", () => {
 
     const rows = parseCollectionCsv(fixture);
 
-    expect(rows).toHaveLength(89);
-    expect(rows.reduce((total, row) => total + row.quantity, 0)).toBe(93);
+    expect(rows).toHaveLength(20);
+    expect(rows.reduce((total, row) => total + row.quantity, 0)).toBe(24);
     expect(
       rows.filter((row) => row.quantity === 2).map((row) => row.name),
     ).toEqual(["Silvally", "Tremendous Bomb"]);
@@ -334,7 +337,7 @@ describe("collection CSV parsing", () => {
     expect(() =>
       parseCollectionCsv(fixtureText.replace(abraCollectorSource, "not a URL")),
     ).toThrowError(
-      /CSV row 70, Inventory ID 69, field "Collector Source": must be a valid URL; received "not a URL"/u,
+      /CSV row 10, Inventory ID 69, field "Collector Source": must be a valid URL; received "not a URL"/u,
     );
   });
 
@@ -397,12 +400,12 @@ describe("collection import", () => {
 
     expect(result).toEqual({
       profileId,
-      sourceKey: "data/seed/collection.csv",
-      importedEntries: 89,
-      importedQuantity: 93,
-      collectionEntries: 89,
-      physicalCards: 93,
-      createdEntries: 89,
+      sourceKey: "primary-collection",
+      importedEntries: 20,
+      importedQuantity: 24,
+      collectionEntries: 20,
+      physicalCards: 24,
+      createdEntries: 20,
       matchedEntries: 0,
       missingEntries: 0,
     });
@@ -461,12 +464,12 @@ describe("collection import", () => {
 
     expect(counts).toEqual({
       games: 1,
-      sets: 13,
-      printings: 89,
-      owned: 89,
-      details: 73,
-      attacks: 103,
-      imports: 89,
+      sets: 12,
+      printings: 20,
+      owned: 20,
+      details: 12,
+      attacks: 16,
+      imports: 20,
     });
 
     const bulbasaur = requiredResult(
@@ -515,7 +518,7 @@ describe("collection import", () => {
       .innerJoin(ownedCards, eq(importRecords.ownedCardId, ownedCards.id))
       .innerJoin(cardPrintings, eq(ownedCards.printingId, cardPrintings.id))
       .all();
-    expect(provenance).toHaveLength(89);
+    expect(provenance).toHaveLength(20);
     expect(
       provenance.every(
         ({
@@ -547,7 +550,7 @@ describe("collection import", () => {
       profileId,
     });
 
-    expect(result).toMatchObject({ collectionEntries: 89, physicalCards: 93 });
+    expect(result).toMatchObject({ collectionEntries: 20, physicalCards: 24 });
     expect(
       connection.db
         .select({
@@ -715,12 +718,12 @@ describe("collection import", () => {
       "physical-card total",
     ).value;
 
-    expect(secondResult.collectionEntries).toBe(89);
-    expect(secondResult.physicalCards).toBe(93);
+    expect(secondResult.collectionEntries).toBe(20);
+    expect(secondResult.physicalCards).toBe(24);
     expect(ownedIdsAfter).toEqual(ownedIdsBefore);
-    expect(physicalCards).toBe(93);
+    expect(physicalCards).toBe(24);
     expect(connection.db.select().from(profiles).all()).toHaveLength(1);
-    expect(connection.db.select().from(importRecords).all()).toHaveLength(89);
+    expect(connection.db.select().from(importRecords).all()).toHaveLength(20);
   });
 
   it("does not mutate the database when file validation fails", () => {
@@ -758,12 +761,12 @@ describe("collection import", () => {
     });
 
     expect(first).toMatchObject({
-      collectionEntries: 89,
-      physicalCards: 93,
+      collectionEntries: 20,
+      physicalCards: 24,
     });
     expect(second).toMatchObject({
-      collectionEntries: 89,
-      physicalCards: 95,
+      collectionEntries: 20,
+      physicalCards: 26,
     });
     expect(
       requiredResult(
@@ -773,7 +776,7 @@ describe("collection import", () => {
           .get(),
         "printing count",
       ).value,
-    ).toBe(89);
+    ).toBe(20);
     expect(
       requiredResult(
         connection.db
@@ -782,7 +785,7 @@ describe("collection import", () => {
           .get(),
         "import record count",
       ).value,
-    ).toBe(178);
+    ).toBe(40);
 
     const secondOwnedBefore = requiredResult(
       connection.db
@@ -864,7 +867,7 @@ describe("collection import", () => {
         .from(ownedCards)
         .where(eq(ownedCards.profileId, profileId))
         .get(),
-    ).toEqual({ count: 89 });
+    ).toEqual({ count: 20 });
 
     const service = createCollectionService(connection.db);
     expect(

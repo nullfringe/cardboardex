@@ -436,9 +436,7 @@ describe("destructive reset safety", () => {
   it("refuses unsafe reset targets", () => {
     expect(() => assertSafeResetTarget("/")).toThrow();
     expect(() => assertSafeResetTarget("README.md")).toThrow();
-    expect(() =>
-      assertSafeResetTarget("data/seed/do-not-delete.sqlite"),
-    ).toThrow();
+    expect(() => assertSafeResetTarget(".git/do-not-delete.sqlite")).toThrow();
     expect(assertSafeResetTarget("/tmp/cardboardex-security-test.sqlite")).toBe(
       "/tmp/cardboardex-security-test.sqlite",
     );
