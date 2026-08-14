@@ -4,6 +4,7 @@ import path from "node:path";
 import { describe, expect, it, vi } from "vitest";
 
 import type { ArtworkFetch } from "@/lib/images/official-pokemon-artwork";
+import { TCGCSV_TCGPLAYER_ARTWORK_PROVIDER } from "@/lib/images/tcgcsv-pokemon-artwork";
 import { TCGDEX_TCGPLAYER_ARTWORK_PROVIDER } from "@/lib/images/tcgplayer-card-image";
 import {
   isTcgDexCardApiUrl,
@@ -146,6 +147,63 @@ describe("language-aware TCGdex artwork", () => {
       externalId: "ja/PMCG1-014/pmcg1-014-no-rarity/tcgplayer-91014",
     });
     expect(fetchImpl).toHaveBeenCalledTimes(2);
+  });
+
+  it("uses a uniquely corroborated TCGCSV product only after exact TCGdex verification", async () => {
+    const card = JSON.parse(fixture("tcgdex-ja-pmcg1-014")) as {
+      variants_detailed: Array<Record<string, unknown>>;
+    };
+    delete card.variants_detailed[0]?.pricing;
+    const products = fixture("tcgcsv-pmcg1-23721");
+    const fetchImpl = vi.fn<ArtworkFetch>(async (input, init) => {
+      if (input === "https://api.tcgdex.net/v2/ja/cards/PMCG1-014") {
+        return new Response(JSON.stringify(card), {
+          status: 200,
+          headers: { "content-type": "application/json" },
+        });
+      }
+      if (input === "https://tcgcsv.com/tcgplayer/85/23721/products") {
+        expect(init).toEqual(expect.objectContaining({ redirect: "manual" }));
+        return new Response(products, {
+          status: 200,
+          headers: { "content-type": "application/json" },
+        });
+      }
+      expect(input).toBe(
+        "https://tcgplayer-cdn.tcgplayer.com/product/575573_in_1000x1000.jpg",
+      );
+      expect(init).toEqual(
+        expect.objectContaining({ method: "HEAD", redirect: "manual" }),
+      );
+      return new Response(null, {
+        status: 200,
+        headers: { "content-type": "image/jpeg" },
+      });
+    });
+
+    await expect(
+      resolveTcgDexPokemonArtwork(
+        {
+          ...vintageJapaneseIdentity,
+          canonicalName: "Charmander",
+          rarity: "Common",
+          hp: 50,
+          stage: "Basic",
+          cardType: "Pokémon",
+        },
+        { fetchImpl },
+      ),
+    ).resolves.toEqual({
+      url: "https://tcgplayer-cdn.tcgplayer.com/product/575573_in_1000x1000.jpg",
+      provider: TCGCSV_TCGPLAYER_ARTWORK_PROVIDER,
+      externalId:
+        "ja/PMCG1-014/pmcg1-014-regular/tcgcsv-85-23721/tcgplayer-575573",
+    });
+    expect(fetchImpl).toHaveBeenCalledTimes(3);
+    expect(fetchImpl).not.toHaveBeenCalledWith(
+      "https://attacker.example/not-trusted.jpg",
+      expect.anything(),
+    );
   });
 
   it("requires exactly one positive product ID on the selected variant", async () => {

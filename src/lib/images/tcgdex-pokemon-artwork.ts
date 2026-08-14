@@ -2,6 +2,10 @@ import { isTcgDexCardImageUrl } from "@/lib/security/card-image-policy";
 
 import type { ArtworkFetch } from "./official-pokemon-artwork";
 import {
+  resolveTcgCsvPokemonProduct,
+  TCGCSV_TCGPLAYER_ARTWORK_PROVIDER,
+} from "./tcgcsv-pokemon-artwork";
+import {
   exactTcgplayerProductId,
   TCGDEX_TCGPLAYER_ARTWORK_PROVIDER,
   verifiedTcgplayerImageUrl,
@@ -21,13 +25,19 @@ export type TcgDexPokemonArtworkIdentity = {
   catalogProvider: string | null;
   catalogSetId: string | null;
   catalogCardId: string | null;
+  canonicalName?: string | null;
+  rarity?: string | null;
+  hp?: number | null;
+  stage?: string | null;
+  cardType?: string | null;
 };
 
 export type TcgDexPokemonArtwork = {
   url: string;
   provider:
     | typeof TCGDEX_POKEMON_ARTWORK_PROVIDER
-    | typeof TCGDEX_TCGPLAYER_ARTWORK_PROVIDER;
+    | typeof TCGDEX_TCGPLAYER_ARTWORK_PROVIDER
+    | typeof TCGCSV_TCGPLAYER_ARTWORK_PROVIDER;
   externalId: string;
 };
 
@@ -45,6 +55,10 @@ type TcgDexCard = {
   image: string | null;
   setId: string;
   variants: TcgDexVariant[];
+  rarity: string | null;
+  hp: number | null;
+  stage: string | null;
+  cardType: string | null;
 };
 
 export class TcgDexPokemonArtworkError extends Error {
@@ -75,6 +89,16 @@ function requiredIdentifier(value: unknown, field: string): string {
   return typeof value === "string" || typeof value === "number"
     ? requiredString(String(value), field)
     : requiredString(value, field);
+}
+
+function optionalPositiveInteger(value: unknown): number | null {
+  const parsed =
+    typeof value === "string" && /^\d+$/u.test(value.trim())
+      ? Number(value)
+      : value;
+  return Number.isSafeInteger(parsed) && Number(parsed) > 0
+    ? Number(parsed)
+    : null;
 }
 
 function parseVariant(value: unknown): TcgDexVariant | null {
@@ -114,6 +138,10 @@ function parseCard(value: unknown): TcgDexCard {
           .map(parseVariant)
           .filter((variant): variant is TcgDexVariant => variant !== null)
       : [],
+    rarity: typeof value.rarity === "string" ? value.rarity : null,
+    hp: optionalPositiveInteger(value.hp),
+    stage: typeof value.stage === "string" ? value.stage : null,
+    cardType: typeof value.category === "string" ? value.category : null,
   };
 }
 
@@ -305,13 +333,48 @@ export async function resolveTcgDexPokemonArtwork(
 
   if (languageCode !== "ja") return null;
   const productId = exactTcgplayerProductId(variant.pricing);
-  if (!productId) return null;
-  const url = await verifiedTcgplayerImageUrl(productId, fetchImpl, timeoutMs);
+  if (productId) {
+    const url = await verifiedTcgplayerImageUrl(
+      productId,
+      fetchImpl,
+      timeoutMs,
+    );
+    if (!url) return null;
+
+    return {
+      url,
+      provider: TCGDEX_TCGPLAYER_ARTWORK_PROVIDER,
+      externalId: `${languageCode}/${card.id}/${variant.variantId}/tcgplayer-${productId}`,
+    };
+  }
+
+  const tcgCsvProduct = await resolveTcgCsvPokemonProduct(
+    {
+      catalogSetId: card.setId,
+      printingVariantKey: identity.printingVariantKey,
+      canonicalName: identity.canonicalName,
+      localRarity: identity.rarity,
+      localHp: identity.hp,
+      localStage: identity.stage,
+      localCardType: identity.cardType,
+      tcgDexRarity: card.rarity,
+      tcgDexHp: card.hp,
+      tcgDexStage: card.stage,
+      tcgDexCardType: card.cardType,
+    },
+    { fetchImpl, timeoutMs },
+  );
+  if (!tcgCsvProduct) return null;
+  const url = await verifiedTcgplayerImageUrl(
+    tcgCsvProduct.productId,
+    fetchImpl,
+    timeoutMs,
+  );
   if (!url) return null;
 
   return {
     url,
-    provider: TCGDEX_TCGPLAYER_ARTWORK_PROVIDER,
-    externalId: `${languageCode}/${card.id}/${variant.variantId}/tcgplayer-${productId}`,
+    provider: TCGCSV_TCGPLAYER_ARTWORK_PROVIDER,
+    externalId: `${languageCode}/${card.id}/${variant.variantId}/tcgcsv-${tcgCsvProduct.categoryId}-${tcgCsvProduct.groupId}/tcgplayer-${tcgCsvProduct.productId}`,
   };
 }

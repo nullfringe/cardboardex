@@ -1,0 +1,44 @@
+{
+  "success": true,
+  "errors": [],
+  "results": [
+    {
+      "productId": 575713,
+      "name": "Charmander",
+      "cleanName": "Charmander",
+      "imageUrl": "https://images.tcgplayer.com/fit-in/437x437/575713.jpg",
+      "categoryId": 85,
+      "groupId": 23724,
+      "extendedData": [
+        { "name": "Rarity", "value": "Common" },
+        { "name": "HP", "value": "40" },
+        { "name": "Stage", "value": "Basic" },
+        { "name": "CardType", "value": "Pokemon" }
+      ]
+    },
+    {
+      "productId": 575738,
+      "name": "Squirtle",
+      "cleanName": "Squirtle",
+      "imageUrl": "https://images.tcgplayer.com/fit-in/437x437/575738.jpg",
+      "categoryId": 85,
+      "groupId": 23724,
+      "extendedData": [
+        { "name": "Rarity", "value": "Common" },
+        { "name": "HP", "value": "50" }
+      ]
+    },
+    {
+      "productId": 575759,
+      "name": "Dark Charmeleon",
+      "cleanName": "Dark Charmeleon",
+      "imageUrl": "https://images.tcgplayer.com/fit-in/437x437/575759.jpg",
+      "categoryId": 85,
+      "groupId": 23724,
+      "extendedData": [
+        { "name": "Rarity", "value": "Uncommon" },
+        { "name": "HP", "value": "50" }
+      ]
+    }
+  ]
+}

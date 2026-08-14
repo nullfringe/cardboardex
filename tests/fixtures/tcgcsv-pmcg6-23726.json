@@ -1,0 +1,34 @@
+{
+  "success": true,
+  "errors": [],
+  "results": [
+    {
+      "productId": 575314,
+      "name": "Koga’s Pidgey (C)",
+      "cleanName": "Koga's Pidgey (C)",
+      "imageUrl": "https://images.tcgplayer.com/fit-in/437x437/575314.jpg",
+      "categoryId": 85,
+      "groupId": 23726,
+      "extendedData": [
+        { "name": "Rarity", "value": "Common" },
+        { "name": "HP", "value": "50" },
+        { "name": "Stage", "value": "Basic" },
+        { "name": "CardType", "value": "Pokemon" }
+      ]
+    },
+    {
+      "productId": 575380,
+      "name": "Koga's Pidgey (U)",
+      "cleanName": "Koga's Pidgey (U)",
+      "imageUrl": "https://images.tcgplayer.com/fit-in/437x437/575380.jpg",
+      "categoryId": 85,
+      "groupId": 23726,
+      "extendedData": [
+        { "name": "Rarity", "value": "Uncommon" },
+        { "name": "HP", "value": "40" },
+        { "name": "Stage", "value": "Basic" },
+        { "name": "CardType", "value": "Pokemon" }
+      ]
+    }
+  ]
+}

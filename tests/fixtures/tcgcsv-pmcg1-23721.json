@@ -1,0 +1,48 @@
+{
+  "success": true,
+  "errors": [],
+  "results": [
+    {
+      "productId": 575572,
+      "name": "Caterpie",
+      "cleanName": "Caterpie",
+      "imageUrl": "https://images.tcgplayer.com/fit-in/437x437/575572.jpg",
+      "categoryId": 85,
+      "groupId": 23721,
+      "extendedData": [
+        { "name": "Rarity", "value": "Common" },
+        { "name": "HP", "value": "40" },
+        { "name": "Stage", "value": "Basic" },
+        { "name": "CardType", "value": "Pokemon" }
+      ]
+    },
+    {
+      "productId": 575573,
+      "name": "Charmander",
+      "cleanName": "Charmander",
+      "imageUrl": "https://attacker.example/not-trusted.jpg",
+      "categoryId": 85,
+      "groupId": 23721,
+      "extendedData": [
+        { "name": "Rarity", "value": "Common" },
+        { "name": "HP", "value": "50" },
+        { "name": "Stage", "value": "Basic" },
+        { "name": "CardType", "value": "Pokémon" }
+      ]
+    },
+    {
+      "productId": 575583,
+      "name": "Metapod",
+      "cleanName": "Metapod",
+      "imageUrl": "https://images.tcgplayer.com/fit-in/437x437/575583.jpg",
+      "categoryId": 85,
+      "groupId": 23721,
+      "extendedData": [
+        { "name": "Rarity", "value": "Common" },
+        { "name": "HP", "value": "70" },
+        { "name": "Stage", "value": "Stage 1" },
+        { "name": "CardType", "value": "Pokemon" }
+      ]
+    }
+  ]
+}

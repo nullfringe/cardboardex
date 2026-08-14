@@ -1,0 +1,20 @@
+{
+  "success": true,
+  "errors": [],
+  "results": [
+    {
+      "productId": 675573,
+      "name": "Charmander",
+      "cleanName": "Charmander",
+      "imageUrl": "https://images.tcgplayer.com/fit-in/437x437/675573.jpg",
+      "categoryId": 85,
+      "groupId": 23740,
+      "extendedData": [
+        { "name": "Rarity", "value": "Common" },
+        { "name": "HP", "value": "50" },
+        { "name": "Stage", "value": "Basic" },
+        { "name": "CardType", "value": "Pokemon" }
+      ]
+    }
+  ]
+}

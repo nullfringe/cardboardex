@@ -1,7 +1,7 @@
 import { asc, eq, sql } from "drizzle-orm";
 
 import type { AppDatabase } from "@/db/client";
-import { cardPrintings, cardSets, games } from "@/db/schema";
+import { cardPrintings, cardSets, games, pokemonDetails } from "@/db/schema";
 
 import {
   type ArtworkFetch,
@@ -64,12 +64,17 @@ export async function syncPokemonArtwork(
     .select({
       printingId: cardPrintings.id,
       name: cardPrintings.name,
+      canonicalName: cardPrintings.canonicalName,
       gameSlug: games.slug,
       setCode: cardSets.code,
       setName: cardSets.name,
       collectorNumber: cardPrintings.collectorNumber,
       printingVariantKey: cardPrintings.printingVariantKey,
       languageCode: cardPrintings.languageCode,
+      rarity: cardPrintings.rarity,
+      stage: cardPrintings.subtype,
+      cardType: cardPrintings.cardKind,
+      hp: pokemonDetails.hp,
       catalogProvider: cardPrintings.catalogProvider,
       catalogCardId: cardPrintings.catalogExternalId,
       catalogSetProvider: cardSets.catalogProvider,
@@ -82,6 +87,7 @@ export async function syncPokemonArtwork(
     .from(cardPrintings)
     .innerJoin(cardSets, eq(cardPrintings.setId, cardSets.id))
     .innerJoin(games, eq(cardSets.gameId, games.id))
+    .leftJoin(pokemonDetails, eq(cardPrintings.id, pokemonDetails.printingId))
     .where(eq(games.slug, "pokemon-tcg"))
     .orderBy(asc(cardPrintings.id))
     .all();
@@ -152,6 +158,11 @@ export async function syncPokemonArtwork(
                   ? printing.catalogSetId
                   : null,
               catalogCardId: printing.catalogCardId,
+              canonicalName: printing.canonicalName,
+              rarity: printing.rarity,
+              hp: printing.hp,
+              stage: printing.stage,
+              cardType: printing.cardType,
             },
             {
               fetchImpl: options.fetchImpl,

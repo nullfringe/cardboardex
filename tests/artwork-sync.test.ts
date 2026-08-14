@@ -16,6 +16,7 @@ import {
   resolveOfficialPokemonArtwork,
 } from "@/lib/images/official-pokemon-artwork";
 import { syncPokemonArtwork } from "@/lib/images/sync-official-pokemon-artwork";
+import { TCGCSV_TCGPLAYER_ARTWORK_PROVIDER } from "@/lib/images/tcgcsv-pokemon-artwork";
 import { VINTAGE_POKEMON_ARTWORK_PROVIDER } from "@/lib/images/vintage-pokemon-artwork";
 import { importCollectionCsv } from "@/lib/import";
 import { createCollectionService } from "@/lib/services/collection-service";
@@ -32,6 +33,14 @@ const vintageAbraFixture = fs.readFileSync(
 );
 const japanesePikachuFixture = fs.readFileSync(
   path.resolve(process.cwd(), "tests/fixtures/tcgdex-ja-sv2a-025.json"),
+  "utf8",
+);
+const japaneseCharmanderFixture = fs.readFileSync(
+  path.resolve(process.cwd(), "tests/fixtures/tcgdex-ja-pmcg1-014.json"),
+  "utf8",
+);
+const expansionPackProductsFixture = fs.readFileSync(
+  path.resolve(process.cwd(), "tests/fixtures/tcgcsv-pmcg1-23721.json"),
   "utf8",
 );
 const maschiffSource =
@@ -372,6 +381,93 @@ describe("Pokémon artwork sync", () => {
     ).toEqual({
       imageProvider: "tcgdex",
       imageUrl: "https://assets.tcgdex.net/ja/SV/SV2a/025/high.webp",
+    });
+  });
+
+  it("passes stored canonical and structured facts to the Japanese TCGCSV bridge", async () => {
+    const secondProfile = createProfileService(connection.db).createProfile({
+      name: "Vintage Japanese Collection",
+    });
+    createCollectionService(connection.db).createCollectionEntry(
+      secondProfile.slug,
+      {
+        gameSlug: "pokemon-tcg",
+        gameName: "Pokémon Trading Card Game",
+        setCode: "JP-PMCG1",
+        setName: "拡張パック",
+        name: "ヒトカゲ",
+        canonicalName: "Charmander",
+        collectorNumber: "014",
+        languageCode: "ja",
+        printingVariantKey: "standard",
+        catalogProvider: "tcgdex",
+        catalogSetId: "PMCG1",
+        catalogCardId: "PMCG1-014",
+        cardKind: "Pokémon",
+        subtype: "Basic",
+        rarity: "Common",
+        hp: 50,
+        quantity: 1,
+      },
+    );
+    const card = JSON.parse(japaneseCharmanderFixture) as {
+      variants_detailed: Array<Record<string, unknown>>;
+    };
+    delete card.variants_detailed[0]?.pricing;
+    const englishFetch = fetchWithVintageFallback();
+    const fetchImpl = vi.fn<ArtworkFetch>(async (input, init) => {
+      if (input === "https://api.tcgdex.net/v2/ja/cards/PMCG1-014") {
+        return new Response(JSON.stringify(card), {
+          status: 200,
+          headers: { "content-type": "application/json" },
+        });
+      }
+      if (input === "https://tcgcsv.com/tcgplayer/85/23721/products") {
+        return new Response(expansionPackProductsFixture, {
+          status: 200,
+          headers: { "content-type": "application/json" },
+        });
+      }
+      if (
+        input ===
+          "https://tcgplayer-cdn.tcgplayer.com/product/575573_in_1000x1000.jpg" &&
+        init.method === "HEAD"
+      ) {
+        return new Response(null, {
+          status: 200,
+          headers: { "content-type": "image/jpeg" },
+        });
+      }
+      return englishFetch(input, init);
+    });
+
+    const result = await syncPokemonArtwork(connection.db, {
+      fetchImpl,
+      requestDelayMs: 0,
+    });
+
+    expect(result).toMatchObject({
+      totalPrintings: 70,
+      resolved: 70,
+      unresolved: 0,
+      failed: 0,
+    });
+    expect(
+      connection.db
+        .select({
+          imageProvider: cardPrintings.imageProvider,
+          imageExternalId: cardPrintings.imageExternalId,
+          imageUrl: cardPrintings.imageUrl,
+        })
+        .from(cardPrintings)
+        .where(eq(cardPrintings.catalogExternalId, "PMCG1-014"))
+        .get(),
+    ).toEqual({
+      imageProvider: TCGCSV_TCGPLAYER_ARTWORK_PROVIDER,
+      imageExternalId:
+        "ja/PMCG1-014/pmcg1-014-regular/tcgcsv-85-23721/tcgplayer-575573",
+      imageUrl:
+        "https://tcgplayer-cdn.tcgplayer.com/product/575573_in_1000x1000.jpg",
     });
   });
 
