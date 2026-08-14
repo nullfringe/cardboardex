@@ -1,0 +1,26 @@
+{
+  "category": "Pokemon",
+  "id": "PMCG6-062",
+  "localId": "062",
+  "name": "キョウのポッポ",
+  "rarity": "Common",
+  "set": {
+    "cardCount": { "official": 132, "total": 132 },
+    "id": "PMCG6",
+    "name": "闇からの挑戦"
+  },
+  "variants_detailed": [
+    {
+      "type": "normal",
+      "size": "standard",
+      "variantId": "pmcg6-062-regular",
+      "pricing": {
+        "tcgplayer": {
+          "normal": { "productId": 96062 }
+        }
+      }
+    }
+  ],
+  "hp": 40,
+  "types": ["Colorless"]
+}

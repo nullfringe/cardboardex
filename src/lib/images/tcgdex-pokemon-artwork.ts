@@ -1,6 +1,11 @@
 import { isTcgDexCardImageUrl } from "@/lib/security/card-image-policy";
 
 import type { ArtworkFetch } from "./official-pokemon-artwork";
+import {
+  exactTcgplayerProductId,
+  TCGDEX_TCGPLAYER_ARTWORK_PROVIDER,
+  verifiedTcgplayerImageUrl,
+} from "./tcgplayer-card-image";
 
 export const TCGDEX_POKEMON_ARTWORK_PROVIDER = "tcgdex";
 export const TCGDEX_API_ORIGIN = "https://api.tcgdex.net";
@@ -20,7 +25,9 @@ export type TcgDexPokemonArtworkIdentity = {
 
 export type TcgDexPokemonArtwork = {
   url: string;
-  provider: typeof TCGDEX_POKEMON_ARTWORK_PROVIDER;
+  provider:
+    | typeof TCGDEX_POKEMON_ARTWORK_PROVIDER
+    | typeof TCGDEX_TCGPLAYER_ARTWORK_PROVIDER;
   externalId: string;
 };
 
@@ -29,6 +36,7 @@ type TcgDexVariant = {
   stamps: string[];
   size?: string;
   variantId: string;
+  pricing?: unknown;
 };
 
 type TcgDexCard = {
@@ -82,6 +90,7 @@ function parseVariant(value: unknown): TcgDexVariant | null {
       ...(typeof value.size === "string" ? { size: value.size } : {}),
       stamps,
       variantId: requiredString(value.variantId, "variant ID"),
+      ...(value.pricing !== undefined ? { pricing: value.pricing } : {}),
     };
   } catch {
     return null;
@@ -115,20 +124,31 @@ function exactVariant(
   const standardSize = variants.filter(
     (variant) => variant.size === undefined || variant.size === "standard",
   );
-  if (standardSize.length !== 1) return null;
-
-  const variant = standardSize[0];
-  if (!variant) return null;
   const key = normalized(printingVariantKey);
   if (key === "standard") {
-    return variant.subtype === undefined && variant.stamps.length === 0
-      ? variant
-      : null;
+    const matches = standardSize.filter(
+      (variant) => variant.subtype === undefined && variant.stamps.length === 0,
+    );
+    return matches.length === 1 ? (matches[0] ?? null) : null;
   }
 
-  return normalized(variant.subtype ?? "") === key ||
-    variant.stamps.some((stamp) => normalized(stamp) === key)
-    ? variant
+  const exactMatches = standardSize.filter(
+    (variant) =>
+      normalized(variant.subtype ?? "") === key ||
+      variant.stamps.some((stamp) => normalized(stamp) === key),
+  );
+  if (exactMatches.length > 0) {
+    return exactMatches.length === 1 ? (exactMatches[0] ?? null) : null;
+  }
+
+  if (!/^lv-?\d+$/u.test(key)) return null;
+
+  const soleVariant = standardSize[0];
+  return standardSize.length === 1 &&
+    soleVariant !== undefined &&
+    soleVariant.subtype === undefined &&
+    soleVariant.stamps.length === 0
+    ? soleVariant
     : null;
 }
 
@@ -266,13 +286,32 @@ export async function resolveTcgDexPokemonArtwork(
   }
 
   const variant = exactVariant(card.variants, identity.printingVariantKey);
-  if (!variant || !card.image) return null;
-  const url = exactImageUrl(card.image, languageCode, card.setId, card.localId);
+  if (!variant) return null;
+  if (card.image) {
+    const url = exactImageUrl(
+      card.image,
+      languageCode,
+      card.setId,
+      card.localId,
+    );
+    if (!url) return null;
+
+    return {
+      url,
+      provider: TCGDEX_POKEMON_ARTWORK_PROVIDER,
+      externalId: `${languageCode}/${card.id}/${variant.variantId}`,
+    };
+  }
+
+  if (languageCode !== "ja") return null;
+  const productId = exactTcgplayerProductId(variant.pricing);
+  if (!productId) return null;
+  const url = await verifiedTcgplayerImageUrl(productId, fetchImpl, timeoutMs);
   if (!url) return null;
 
   return {
     url,
-    provider: TCGDEX_POKEMON_ARTWORK_PROVIDER,
-    externalId: `${languageCode}/${card.id}/${variant.variantId}`,
+    provider: TCGDEX_TCGPLAYER_ARTWORK_PROVIDER,
+    externalId: `${languageCode}/${card.id}/${variant.variantId}/tcgplayer-${productId}`,
   };
 }

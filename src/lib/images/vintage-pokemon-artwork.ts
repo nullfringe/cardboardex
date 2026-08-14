@@ -1,11 +1,12 @@
-import {
-  isTcgplayerCardImageUrl,
-  TCGPLAYER_CARD_IMAGE_ORIGIN,
-} from "@/lib/security/card-image-policy";
-
 import type { ArtworkFetch } from "./official-pokemon-artwork";
+import {
+  TCGDEX_TCGPLAYER_ARTWORK_PROVIDER,
+  tcgplayerProductIds,
+  verifiedTcgplayerImageUrl,
+} from "./tcgplayer-card-image";
 
-export const VINTAGE_POKEMON_ARTWORK_PROVIDER = "tcgdex-tcgplayer";
+export const VINTAGE_POKEMON_ARTWORK_PROVIDER =
+  TCGDEX_TCGPLAYER_ARTWORK_PROVIDER;
 export const TCGDEX_API_ORIGIN = "https://api.tcgdex.net";
 
 const DEFAULT_TIMEOUT_MS = 10_000;
@@ -251,36 +252,19 @@ function selectPrintingVariant(
   return matches.length === 1 ? (matches[0] ?? null) : null;
 }
 
-function productIds(value: unknown): number[] {
-  if (!isRecord(value)) return [];
-  const found = new Set<number>();
-  const visit = (candidate: unknown, depth: number): void => {
-    if (!isRecord(candidate) || depth > 3) return;
-    if (
-      Number.isSafeInteger(candidate.productId) &&
-      Number(candidate.productId) > 0
-    ) {
-      found.add(Number(candidate.productId));
-    }
-    for (const nested of Object.values(candidate)) visit(nested, depth + 1);
-  };
-  visit(value, 0);
-  return [...found];
-}
-
 function exactTcgplayerProductId(
   card: TcgDexCard,
   variant: TcgDexVariant,
   printingVariantKey: string,
 ): number | null {
-  const variantProducts = productIds(variant.pricing);
+  const variantProducts = tcgplayerProductIds(variant.pricing);
   if (variantProducts.length === 1) return variantProducts[0] ?? null;
 
   if (
     normalizedIdentityPart(printingVariantKey) === "standard" &&
     card.variants.length === 1
   ) {
-    const cardProducts = productIds(card.pricing);
+    const cardProducts = tcgplayerProductIds(card.pricing);
     return cardProducts.length === 1 ? (cardProducts[0] ?? null) : null;
   }
 
@@ -373,34 +357,6 @@ async function fetchTcgDexCard(
   }
 }
 
-async function verifyTcgplayerImage(
-  url: string,
-  fetchImpl: ArtworkFetch,
-  timeoutMs: number,
-): Promise<boolean> {
-  if (!isTcgplayerCardImageUrl(url)) return false;
-  const response = await fetchImpl(url, {
-    headers: {
-      accept: "image/jpeg",
-      "user-agent":
-        "Cardboardex/0.1 (+https://github.com/nullfringe/cardboardex)",
-    },
-    method: "HEAD",
-    redirect: "manual",
-    signal: AbortSignal.timeout(timeoutMs),
-  });
-
-  return (
-    response.status === 200 &&
-    Boolean(
-      response.headers
-        .get("content-type")
-        ?.toLocaleLowerCase("en-US")
-        .startsWith("image/jpeg"),
-    )
-  );
-}
-
 export async function resolveVintagePokemonArtwork(
   identity: VintagePokemonArtworkIdentity,
   {
@@ -452,8 +408,8 @@ export async function resolveVintagePokemonArtwork(
   );
   if (!productId) return null;
 
-  const url = `${TCGPLAYER_CARD_IMAGE_ORIGIN}/product/${productId}_in_1000x1000.jpg`;
-  if (!(await verifyTcgplayerImage(url, fetchImpl, timeoutMs))) return null;
+  const url = await verifiedTcgplayerImageUrl(productId, fetchImpl, timeoutMs);
+  if (!url) return null;
 
   return {
     url,
