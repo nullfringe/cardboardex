@@ -331,11 +331,102 @@ export const ownedCards = sqliteTable(
   (table) => [
     check("owned_cards_quantity_positive", sql`${table.quantity} > 0`),
     uniqueIndex("owned_cards_id_profile_unique").on(table.id, table.profileId),
+    uniqueIndex("owned_cards_id_printing_unique").on(
+      table.id,
+      table.printingId,
+    ),
     index("owned_cards_profile_printing_index").on(
       table.profileId,
       table.printingId,
     ),
     index("owned_cards_printing_index").on(table.printingId),
+  ],
+);
+
+export const marketPriceObservations = sqliteTable(
+  "market_price_observations",
+  {
+    id: integer("id").primaryKey({ autoIncrement: true }),
+    printingId: integer("printing_id")
+      .notNull()
+      .references(() => cardPrintings.id, {
+        onDelete: "cascade",
+        onUpdate: "cascade",
+      }),
+    ownedCardId: integer("owned_card_id"),
+    provider: text("provider").notNull(),
+    providerProductId: text("provider_product_id"),
+    providerVariant: text("provider_variant"),
+    currency: text("currency").notNull(),
+    marketPriceMinor: integer("market_price_minor"),
+    lowPriceMinor: integer("low_price_minor"),
+    midPriceMinor: integer("mid_price_minor"),
+    highPriceMinor: integer("high_price_minor"),
+    directLowPriceMinor: integer("direct_low_price_minor"),
+    observationType: text("observation_type").notNull().default("provider"),
+    observationKey: text("observation_key").notNull(),
+    sourceUrl: text("source_url"),
+    sourceUpdatedAt: text("source_updated_at"),
+    firstSeenAt: text("first_seen_at")
+      .notNull()
+      .default(sql`CURRENT_TIMESTAMP`),
+    lastSeenAt: text("last_seen_at")
+      .notNull()
+      .default(sql`CURRENT_TIMESTAMP`),
+    note: text("note"),
+  },
+  (table) => [
+    foreignKey({
+      columns: [table.ownedCardId, table.printingId],
+      foreignColumns: [ownedCards.id, ownedCards.printingId],
+      name: "market_price_observations_owned_card_printing_fk",
+    })
+      .onUpdate("cascade")
+      .onDelete("cascade"),
+    uniqueIndex("market_price_observations_key_unique").on(
+      table.observationKey,
+    ),
+    index("market_price_observations_printing_index").on(
+      table.printingId,
+      table.provider,
+      table.lastSeenAt,
+    ),
+    index("market_price_observations_owned_card_index").on(
+      table.ownedCardId,
+      table.id,
+    ),
+    check(
+      "market_price_observations_currency_code",
+      sql`length(${table.currency}) = 3 AND ${table.currency} = upper(${table.currency})`,
+    ),
+    check(
+      "market_price_observations_nonnegative_prices",
+      sql`(${table.marketPriceMinor} IS NULL OR ${table.marketPriceMinor} >= 0)
+        AND (${table.lowPriceMinor} IS NULL OR ${table.lowPriceMinor} >= 0)
+        AND (${table.midPriceMinor} IS NULL OR ${table.midPriceMinor} >= 0)
+        AND (${table.highPriceMinor} IS NULL OR ${table.highPriceMinor} >= 0)
+        AND (${table.directLowPriceMinor} IS NULL OR ${table.directLowPriceMinor} >= 0)`,
+    ),
+    check(
+      "market_price_observations_scope",
+      sql`(${table.observationType} = 'provider' AND ${table.ownedCardId} IS NULL AND ${table.provider} <> 'manual')
+        OR (${table.observationType} IN ('manual-set', 'manual-clear') AND ${table.ownedCardId} IS NOT NULL AND ${table.provider} = 'manual')`,
+    ),
+    check(
+      "market_price_observations_value",
+      sql`(${table.observationType} = 'manual-clear'
+          AND ${table.marketPriceMinor} IS NULL
+          AND ${table.lowPriceMinor} IS NULL
+          AND ${table.midPriceMinor} IS NULL
+          AND ${table.highPriceMinor} IS NULL
+          AND ${table.directLowPriceMinor} IS NULL)
+        OR (${table.observationType} <> 'manual-clear'
+          AND (${table.marketPriceMinor} IS NOT NULL
+            OR ${table.lowPriceMinor} IS NOT NULL
+            OR ${table.midPriceMinor} IS NOT NULL
+            OR ${table.highPriceMinor} IS NOT NULL
+            OR ${table.directLowPriceMinor} IS NOT NULL))`,
+    ),
   ],
 );
 

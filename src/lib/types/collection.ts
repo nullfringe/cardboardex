@@ -1,3 +1,5 @@
+import type { MarketPriceEstimate } from "@/lib/types/pricing";
+
 export type CollectionSortField =
   "name" | "set" | "collectorNumber" | "pokemonType" | "hp" | "quantity";
 
@@ -59,6 +61,7 @@ export type CollectionListItem = {
   imageExternalId: string | null;
   imageUrl: string | null;
   printedIdentifierText: string | null;
+  marketEstimate: MarketPriceEstimate | null;
 };
 
 export type CollectionAttack = {

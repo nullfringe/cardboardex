@@ -989,6 +989,21 @@ img {
   text-overflow: ellipsis;
 }
 
+.card-tile__value {
+  margin: -4px 0 9px;
+  color: var(--accent-bright);
+  font-size: 11px;
+  font-weight: 760;
+  font-variant-numeric: tabular-nums;
+}
+
+.card-tile__value small {
+  color: var(--muted);
+  font-size: 9px;
+  font-weight: 680;
+  text-transform: uppercase;
+}
+
 .card-tile__tags {
   display: flex;
   min-height: 20px;
@@ -1132,6 +1147,15 @@ img {
   .collection-counts div {
     min-width: 0;
     flex: 1;
+    padding-inline: 9px;
+  }
+
+  .collection-counts dt {
+    font-size: 8px;
+  }
+
+  .collection-counts dd {
+    font-size: 16px;
   }
 
   .browser-controls {
@@ -1400,6 +1424,82 @@ img {
   font-weight: 640;
 }
 
+.market-value__amount {
+  display: flex;
+  align-items: baseline;
+  gap: 9px;
+  margin-bottom: 7px;
+}
+
+.market-value__amount strong {
+  color: var(--accent-bright);
+  font-family: var(--font-display);
+  font-size: 38px;
+  font-weight: 600;
+  font-variant-numeric: tabular-nums;
+  letter-spacing: -0.035em;
+  line-height: 1;
+}
+
+.market-value__amount span,
+.market-value__lot,
+.market-value__caveat,
+.market-value__empty small,
+.manual-valuation-form__help {
+  color: var(--muted);
+  font-size: 11px;
+  line-height: 1.55;
+}
+
+.market-value__lot {
+  margin: 0 0 19px;
+}
+
+.market-value__lot strong {
+  color: var(--text-soft);
+}
+
+.market-value__facts {
+  margin-top: 19px;
+}
+
+.market-value__source {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  margin-top: 18px;
+  color: var(--accent-bright);
+  font-size: 11px;
+  font-weight: 680;
+}
+
+.market-value__note {
+  border-left: 2px solid var(--accent);
+  margin: 18px 0 0;
+  color: var(--text-soft);
+  font-size: 12px;
+  line-height: 1.55;
+  padding-left: 11px;
+}
+
+.market-value__caveat {
+  margin: 18px 0 0;
+}
+
+.market-value__empty {
+  border: 1px dashed var(--line);
+  border-radius: 10px;
+  background: var(--surface);
+  padding: 16px;
+}
+
+.market-value__empty p {
+  margin: 0 0 3px;
+  color: var(--text-soft);
+  font-size: 13px;
+  font-weight: 680;
+}
+
 .printed-text {
   margin: 0;
   color: var(--text-soft);
@@ -1573,6 +1673,44 @@ img {
   display: grid;
   gap: 16px;
   padding: 20px;
+}
+
+.manual-valuation-form {
+  display: grid;
+  gap: 13px;
+  border-top: 1px solid var(--line);
+  padding: 20px;
+}
+
+.manual-valuation-form__heading {
+  display: flex;
+  align-items: flex-end;
+  justify-content: space-between;
+  gap: 12px;
+}
+
+.manual-valuation-form__heading h3 {
+  margin: 0;
+  font-family: var(--font-display);
+  font-size: 21px;
+  font-weight: 560;
+}
+
+.manual-valuation-form__heading > span {
+  color: var(--muted);
+  font-size: 9px;
+  font-weight: 680;
+}
+
+.manual-valuation-form__help {
+  margin: -2px 0 0;
+}
+
+.manual-valuation-form__actions {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
 }
 
 .form-grid {
@@ -1827,6 +1965,11 @@ img {
   }
 
   .ownership-form__actions {
+    align-items: stretch;
+    flex-direction: column;
+  }
+
+  .manual-valuation-form__actions {
     align-items: stretch;
     flex-direction: column;
   }

@@ -19,6 +19,8 @@ import type {
   CollectionSortField,
   SortDirection,
 } from "@/lib/types/collection";
+import { estimateLotValue, formatMoney } from "@/lib/pricing/money";
+import type { ProfileValuationSummary } from "@/lib/types/pricing";
 import type { Profile } from "@/lib/types/profile";
 import { languageBadge } from "@/lib/languages";
 
@@ -28,6 +30,7 @@ type CollectionBrowserProps = {
   initialItems: CollectionListItem[];
   facets: CollectionFacets;
   profile: Profile;
+  valuation: ProfileValuationSummary;
 };
 
 type BrowserFilters = {
@@ -193,6 +196,9 @@ function FilterSelect({
 }
 
 function CollectionCard({ item }: { item: CollectionListItem }) {
+  const lotValue = item.marketEstimate
+    ? estimateLotValue(item.marketEstimate, item.quantity)
+    : null;
   return (
     <Link
       className="card-tile"
@@ -242,6 +248,19 @@ function CollectionCard({ item }: { item: CollectionListItem }) {
             </>
           ) : null}
         </p>
+        {item.marketEstimate && lotValue !== null ? (
+          <p
+            className="card-tile__value"
+            title={
+              item.quantity > 1
+                ? `${formatMoney(item.marketEstimate.unitAmountMinor, item.marketEstimate.currency)} per card × ${item.quantity}`
+                : "Ungraded per-card market estimate"
+            }
+          >
+            {formatMoney(lotValue, item.marketEstimate.currency)} est.
+            {item.quantity > 1 ? <small> lot</small> : null}
+          </p>
+        ) : null}
         <div className="card-tile__tags">
           <span className="meta-pill" title={item.languageCode}>
             {languageBadge(item.languageCode)}
@@ -274,6 +293,7 @@ export function CollectionBrowser({
   initialItems,
   facets,
   profile,
+  valuation,
 }: CollectionBrowserProps) {
   const [search, setSearch] = useState("");
   const deferredSearch = useDeferredValue(search);
@@ -322,6 +342,20 @@ export function CollectionBrowser({
           <div>
             <dt>Physical cards</dt>
             <dd>{totalCards}</dd>
+          </div>
+          <div>
+            <dt>Est. value</dt>
+            <dd>
+              {valuation.valuedEntries > 0
+                ? formatMoney(valuation.estimatedValueMinor, valuation.currency)
+                : "—"}
+            </dd>
+          </div>
+          <div title="Owned entries with an exact or manual estimate">
+            <dt>Valued</dt>
+            <dd>
+              {valuation.valuedEntries}/{valuation.totalEntries}
+            </dd>
           </div>
         </dl>
       </section>

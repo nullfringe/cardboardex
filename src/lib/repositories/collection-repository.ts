@@ -297,7 +297,8 @@ export class CollectionRepository {
     return collectionBaseQuery(this.db)
       .where(conditions.length > 0 ? and(...conditions) : undefined)
       .orderBy(...orderBy(sort))
-      .all();
+      .all()
+      .map((row) => ({ ...row, marketEstimate: null }));
   }
 
   getDetail(profileId: number, ownedCardId: number): CollectionDetail | null {
@@ -399,6 +400,7 @@ export class CollectionRepository {
       gridPosition: ownedMetadata.gridPosition ?? null,
       frontPhoto: ownedMetadata.frontPhoto ?? null,
       backPhoto: ownedMetadata.backPhoto ?? null,
+      marketEstimate: null,
       attacks: attackRows,
       printedIdentifiers: identifierRows,
       printingGroups: groupRows,
