@@ -19,7 +19,11 @@ import type {
   CollectionSortField,
   SortDirection,
 } from "@/lib/types/collection";
-import { estimateLotValue, formatMoney } from "@/lib/pricing/money";
+import {
+  compareMarketPriceEstimates,
+  estimateLotValue,
+  formatMoney,
+} from "@/lib/pricing/money";
 import type { ProfileValuationSummary } from "@/lib/types/pricing";
 import type { Profile } from "@/lib/types/profile";
 import { languageBadge } from "@/lib/languages";
@@ -32,6 +36,8 @@ type CollectionBrowserProps = {
   profile: Profile;
   valuation: ProfileValuationSummary;
 };
+
+type BrowserSortField = CollectionSortField | "marketPrice";
 
 type BrowserFilters = {
   gameSlug: string;
@@ -114,6 +120,16 @@ function compareItems(
     default:
       return collator.compare(left.name, right.name);
   }
+}
+
+function directionLabel(
+  field: BrowserSortField,
+  direction: SortDirection,
+): string {
+  const numeric =
+    field === "hp" || field === "quantity" || field === "marketPrice";
+  if (numeric) return direction === "asc" ? "Low–high" : "High–low";
+  return direction === "asc" ? "A–Z" : "Z–A";
 }
 
 function normalizeSearch(value: string): string {
@@ -299,7 +315,7 @@ export function CollectionBrowser({
   const deferredSearch = useDeferredValue(search);
   const [filters, setFilters] = useState<BrowserFilters>(emptyFilters);
   const [filtersOpen, setFiltersOpen] = useState(false);
-  const [sortField, setSortField] = useState<CollectionSortField>("name");
+  const [sortField, setSortField] = useState<BrowserSortField>("name");
   const [sortDirection, setSortDirection] = useState<SortDirection>("asc");
 
   const activeFilterCount = Object.values(filters).filter(Boolean).length;
@@ -313,7 +329,14 @@ export function CollectionBrowser({
         (item) => matchesSearch(item, query) && matchesFilters(item, filters),
       )
       .sort((left, right) => {
-        const primary = compareItems(left, right, sortField) * direction;
+        const primary =
+          sortField === "marketPrice"
+            ? compareMarketPriceEstimates(
+                left.marketEstimate,
+                right.marketEstimate,
+                sortDirection,
+              )
+            : compareItems(left, right, sortField) * direction;
         return primary || collator.compare(left.name, right.name);
       });
   }, [deferredSearch, filters, initialItems, sortDirection, sortField]);
@@ -402,7 +425,7 @@ export function CollectionBrowser({
             <select
               value={sortField}
               onChange={(event) =>
-                setSortField(event.target.value as CollectionSortField)
+                setSortField(event.target.value as BrowserSortField)
               }
             >
               <option value="name">Name</option>
@@ -411,6 +434,7 @@ export function CollectionBrowser({
               <option value="pokemonType">Type</option>
               <option value="hp">HP</option>
               <option value="quantity">Quantity</option>
+              <option value="marketPrice">Market price</option>
             </select>
           </label>
           <button
@@ -422,7 +446,7 @@ export function CollectionBrowser({
               setSortDirection((value) => (value === "asc" ? "desc" : "asc"))
             }
           >
-            {sortDirection === "asc" ? "A–Z" : "Z–A"}
+            {directionLabel(sortField, sortDirection)}
           </button>
         </div>
 

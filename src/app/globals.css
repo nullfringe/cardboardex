@@ -761,7 +761,7 @@ img {
 }
 
 .direction-button {
-  min-width: 54px;
+  min-width: 72px;
   justify-content: center;
   font-size: 12px;
   letter-spacing: 0.03em;
@@ -1224,7 +1224,7 @@ img {
   }
 
   .direction-button {
-    min-width: 47px;
+    min-width: 65px;
     padding-inline: 7px;
   }
 }

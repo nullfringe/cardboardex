@@ -61,3 +61,19 @@ export function estimateLotValue(
 ): number {
   return estimate.unitAmountMinor * quantity;
 }
+
+export function compareMarketPriceEstimates(
+  left: MarketPriceEstimate | null,
+  right: MarketPriceEstimate | null,
+  direction: "asc" | "desc",
+): number {
+  const leftAmount = left?.currency === "USD" ? left.unitAmountMinor : null;
+  const rightAmount = right?.currency === "USD" ? right.unitAmountMinor : null;
+
+  if (leftAmount === null && rightAmount === null) return 0;
+  if (leftAmount === null) return 1;
+  if (rightAmount === null) return -1;
+  return direction === "desc"
+    ? rightAmount - leftAmount
+    : leftAmount - rightAmount;
+}
