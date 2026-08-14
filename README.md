@@ -27,7 +27,7 @@ npm run db:setup
 npm run dev
 ```
 
-Open [http://127.0.0.1:3000](http://127.0.0.1:3000). `db:setup` applies migrations and imports `data/seed/collection.csv`; no database file needs to be created manually.
+Open [http://127.0.0.1:3000](http://127.0.0.1:3000). `db:setup` applies migrations and imports `data/seed/collection.csv` into a fresh **My Collection** development profile; no database file needs to be created manually.
 
 The default database is `data/cardboardex.sqlite` and is intentionally ignored by Git. Set `CARDBOARDEX_DB_PATH` to use a different location.
 
@@ -39,52 +39,57 @@ Fresh setup creates **My Collection** and imports the seed into it. An existing 
 
 ### Common commands
 
-| Command                     | Purpose                                                            |
-| --------------------------- | ------------------------------------------------------------------ |
-| `npm run db:init`           | Create/update the SQLite schema without importing cards            |
-| `npm run db:import -- ...`  | Import an evolving CSV into one explicit existing profile          |
-| `npm run db:seed`           | Apply migrations and repeatably import the seed CSV                |
-| `npm run db:setup`          | Initialize and seed a fresh checkout                               |
-| `npm run db:reset -- --yes` | **Delete the local database and rebuild it from the seed fixture** |
-| `npm run artwork:sync`      | Resolve trusted Pokémon artwork into the local database            |
-| `npm run dev`               | Start the development server on `127.0.0.1`                        |
-| `npm run build`             | Create a production build                                          |
-| `npm start`                 | Run the production build on `127.0.0.1`                            |
-| `npm test`                  | Run importer and collection behavior tests                         |
-| `npm run lint`              | Run ESLint with zero warnings allowed                              |
-| `npm run typecheck`         | Run strict TypeScript checking                                     |
-| `npm run format:check`      | Check formatting                                                   |
-| `npm run security:audit`    | Audit the complete npm dependency tree                             |
-| `npm run check`             | Run tests, lint, typecheck, and build                              |
+| Command                          | Purpose                                                            |
+| -------------------------------- | ------------------------------------------------------------------ |
+| `npm run db:init`                | Create/update the SQLite schema without importing cards            |
+| `npm run collection:sync -- ...` | Preview or update one personal collection from its complete CSV    |
+| `npm run db:import -- ...`       | Advanced import with an explicit provenance source key             |
+| `npm run db:seed`                | Load the public fixture into an unrenamed development profile      |
+| `npm run db:setup`               | Initialize and seed a fresh checkout                               |
+| `npm run db:reset -- --yes`      | **Delete the local database and rebuild it from the seed fixture** |
+| `npm run artwork:sync`           | Resolve trusted Pokémon artwork into the local database            |
+| `npm run dev`                    | Start the development server on `127.0.0.1`                        |
+| `npm run build`                  | Create a production build                                          |
+| `npm start`                      | Run the production build on `127.0.0.1`                            |
+| `npm test`                       | Run importer and collection behavior tests                         |
+| `npm run lint`                   | Run ESLint with zero warnings allowed                              |
+| `npm run typecheck`              | Run strict TypeScript checking                                     |
+| `npm run format:check`           | Check formatting                                                   |
+| `npm run security:audit`         | Audit the complete npm dependency tree                             |
+| `npm run check`                  | Run tests, lint, typecheck, and build                              |
 
-`db:seed` targets the default profile and uses profile-aware import provenance to update fixture-backed entries instead of duplicating them. It never resets the database. The importer requires an explicit target profile ID, so separate profiles may safely reuse the same source and external inventory IDs. `db:reset` is the only destructive database command; it refuses to run without the explicit `--yes` confirmation and permanently removes local edits and manually added cards.
+`db:seed` is only a development-fixture loader. It refuses to write into the default profile after that profile has been renamed, which prevents an accidental fixture import into a personal collection. It never resets the database. The importer requires an explicit target profile ID, so separate profiles may safely reuse the same source and external inventory IDs. `db:reset` is the only destructive database command; it refuses to run without the explicit `--yes` confirmation and permanently removes local edits and manually added cards.
 
-### Importing a real collection
+### Updating a personal collection
 
-Keep private collection working data under ignored local storage, for example `data/local/ekah/collection.csv`. Do not put real collection CSVs, photo provenance, conditions, future valuations, private notes, or other personal ownership data in `data/seed`; that directory contains only the public development fixture.
+Use the same workflow for Thomas, Ekah, and every future collection. Keep each private working CSV under ignored local storage, for example `data/local/thomas/collection.csv` and `data/local/ekah/collection.csv`. Do not put real collection CSVs, photo provenance, conditions, future valuations, private notes, or other personal ownership data in `data/seed`; that directory contains only the public development fixture.
 
-First run the real importer as a dry run:
+The normal workflow is in the application:
+
+1. Select the target collection in the header.
+2. Open **Manage** and choose its complete CSV under **Update this collection from CSV**.
+3. Review the preview, including new, matched, and missing-row counts.
+4. Confirm the import. Cardboardex creates a timestamped SQLite backup under the database's adjacent `backups` directory before it changes anything.
+5. Run `npm run artwork:sync` separately when new printings need artwork.
+
+Rows that share an `Inventory ID` with the collection's prior CSV are updated in place, so quantity, condition, notes, and photo provenance do not duplicate. Existing imported rows absent from the new CSV are reported and deliberately preserved; CSV sync is additive/update-only, not a deletion command. A new collection receives a standard internal source key automatically. A collection migrated from an older workflow automatically keeps its sole existing source key, including Thomas's former seed key or Ekah's explicit key, so its existing ownership provenance stays attached.
+
+The equivalent command-line fallback also chooses the safe source identity automatically:
 
 ```bash
-npm run db:import -- \
-  --profile ekah \
-  --file data/local/ekah/collection.csv \
-  --source-key ekah-collection \
+npm run collection:sync -- \
+  --profile my-collection \
+  --file data/local/thomas/collection.csv \
   --dry-run
+
+npm run collection:sync -- \
+  --profile my-collection \
+  --file data/local/thomas/collection.csv
 ```
 
-If validation succeeds, run the corresponding import without `--dry-run`:
+Replace the profile slug and file path for any other collection, such as `--profile ekah --file data/local/ekah/collection.csv`. The profile must already exist; sync never creates one implicitly. Dry run uses the complete parser and reconciliation path, including printing ambiguity, published-fact conflicts, component validation, and provenance updates, then rolls back the transaction so no changes are committed. Its displayed totals are the projected result of the import.
 
-```bash
-npm run db:import -- \
-  --profile ekah \
-  --file data/local/ekah/collection.csv \
-  --source-key ekah-collection
-```
-
-The profile slug must identify an existing profile; import never creates one implicitly. Keep the source key stable across evolving versions of the same collection even when filenames change. Within that profile and source key, a normalized textual `Inventory ID` identifies the same source-owned ownership lot, so later imports update its quantity, condition, notes, and photo provenance instead of duplicating it. Different profiles remain independent and may reuse the same source key and Inventory ID.
-
-Dry run uses the complete parser and reconciliation path, including printing ambiguity, published-fact conflicts, component validation, and provenance updates, then rolls back the transaction so no changes are committed. Shared `CardPrinting`, set, Pokémon-detail, identifier, and attack facts are reconciled conservatively: missing input preserves known data, compatible input may enrich gaps, and contradictory known facts abort the whole import. The source-owned `OwnedCard` row remains authoritative for its own ownership fields. `db:seed` remains the development-fixture loader and does not replace this explicit real-collection workflow.
+Shared `CardPrinting`, set, Pokémon-detail, identifier, and attack facts are reconciled conservatively: missing input preserves known data, compatible input may enrich gaps, and contradictory known facts abort the whole import. The source-owned `OwnedCard` row remains authoritative for its ownership fields. If a profile intentionally combines more than one CSV source, the automatic workflow refuses to guess; use the advanced `db:import` command with an explicit stable `--source-key` for that profile.
 
 Pushes and pull requests targeting `main` are validated by GitHub Actions using `npm run check` and the dependency audit. Run `npm run check` locally before sharing changes. Generated SQLite databases are local runtime data and must never be committed; `data/seed/collection.csv` is the intentionally version-controlled development fixture.
 

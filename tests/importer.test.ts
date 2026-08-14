@@ -402,6 +402,9 @@ describe("collection import", () => {
       importedQuantity: 93,
       collectionEntries: 89,
       physicalCards: 93,
+      createdEntries: 89,
+      matchedEntries: 0,
+      missingEntries: 0,
     });
 
     const counts = {
@@ -1485,8 +1488,11 @@ describe("collection import", () => {
     expect(dryRunResult).toMatchObject({
       importedEntries: 1,
       importedQuantity: 1,
-      collectionEntries: 1,
-      physicalCards: 1,
+      collectionEntries: 2,
+      physicalCards: 2,
+      createdEntries: 1,
+      matchedEntries: 0,
+      missingEntries: 0,
     });
     expect(tableSnapshot(connection)).toEqual(beforeDryRun);
 

@@ -123,8 +123,11 @@ describe("db:import command", () => {
       sourceKey: "ekah-collection",
       importedEntries: 89,
       importedQuantity: 93,
-      collectionEntries: 0,
-      physicalCards: 0,
+      collectionEntries: 89,
+      physicalCards: 93,
+      createdEntries: 89,
+      matchedEntries: 0,
+      missingEntries: 0,
       dryRun: true,
     });
     expect(formatCollectionImportResult(dryRun)).toContain(

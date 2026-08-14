@@ -55,6 +55,9 @@ export type ImportCollectionResult = {
   importedQuantity: number;
   collectionEntries: number;
   physicalCards: number;
+  createdEntries: number;
+  matchedEntries: number;
+  missingEntries: number;
 };
 
 function printingMetadataFor(row: ParsedCollectionRow): PrintingMetadata {
@@ -393,8 +396,27 @@ export function importCollectionCsv(
   validatePrintingConsistency(rows);
 
   const sourceHash = createHash("sha256").update(input).digest("hex");
+  let createdEntries = 0;
+  let matchedEntries = 0;
+  let missingEntries = 0;
+  let collectionEntries = 0;
+  let physicalCards = 0;
 
   runImportTransaction(db, options.dryRun === true, (tx) => {
+    const remainingInventoryIds = new Set(
+      tx
+        .select({ externalInventoryId: importRecords.externalInventoryId })
+        .from(importRecords)
+        .where(
+          and(
+            eq(importRecords.profileId, profileId),
+            eq(importRecords.sourceKey, sourceKey),
+          ),
+        )
+        .all()
+        .map((record) => record.externalInventoryId),
+    );
+
     let game = tx
       .select({ id: games.id, name: games.name })
       .from(games)
@@ -1203,6 +1225,8 @@ export function importCollectionCsv(
       let ownedCardId: number;
 
       if (existingImport) {
+        matchedEntries += 1;
+        remainingInventoryIds.delete(row.inventoryId);
         ownedCardId = existingImport.ownedCardId;
         tx.update(ownedCards)
           .set({
@@ -1232,6 +1256,7 @@ export function importCollectionCsv(
           .where(eq(importRecords.id, existingImport.importRecordId))
           .run();
       } else {
+        createdEntries += 1;
         const ownedCard = tx
           .insert(ownedCards)
           .values({
@@ -1260,27 +1285,33 @@ export function importCollectionCsv(
           .run();
       }
     }
+
+    const totals = tx
+      .select({
+        collectionEntries: sql<number>`count(*)`,
+        physicalCards: sql<number>`coalesce(sum(${ownedCards.quantity}), 0)`,
+      })
+      .from(ownedCards)
+      .where(eq(ownedCards.profileId, profileId))
+      .get();
+    if (!totals) {
+      throw new Error("Could not calculate collection totals after import");
+    }
+
+    collectionEntries = totals.collectionEntries;
+    physicalCards = totals.physicalCards;
+    missingEntries = remainingInventoryIds.size;
   });
-
-  const totals = db
-    .select({
-      collectionEntries: sql<number>`count(*)`,
-      physicalCards: sql<number>`coalesce(sum(${ownedCards.quantity}), 0)`,
-    })
-    .from(ownedCards)
-    .where(eq(ownedCards.profileId, profileId))
-    .get();
-
-  if (!totals) {
-    throw new Error("Could not calculate collection totals after import");
-  }
 
   return {
     profileId,
     sourceKey,
     importedEntries: rows.length,
     importedQuantity: rows.reduce((total, row) => total + row.quantity, 0),
-    collectionEntries: totals.collectionEntries,
-    physicalCards: totals.physicalCards,
+    collectionEntries,
+    physicalCards,
+    createdEntries,
+    matchedEntries,
+    missingEntries,
   };
 }
