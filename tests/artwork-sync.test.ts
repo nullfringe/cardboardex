@@ -238,14 +238,14 @@ describe("Pokémon artwork sync", () => {
       requestDelayMs: 0,
     });
     expect(first).toMatchObject({
-      totalPrintings: 69,
+      totalPrintings: 89,
       alreadyResolved: 0,
-      attempted: 69,
-      resolved: 69,
-      unresolved: 0,
+      attempted: 89,
+      resolved: 78,
+      unresolved: 11,
       failed: 0,
     });
-    expect(fetchImpl).toHaveBeenCalledTimes(70);
+    expect(fetchImpl).toHaveBeenCalledTimes(79);
 
     const maschiff = connection.db
       .select({
@@ -285,11 +285,11 @@ describe("Pokémon artwork sync", () => {
       requestDelayMs: 0,
     });
     expect(second).toMatchObject({
-      totalPrintings: 69,
-      alreadyResolved: 69,
-      attempted: 0,
+      totalPrintings: 89,
+      alreadyResolved: 78,
+      attempted: 11,
       resolved: 0,
-      unresolved: 0,
+      unresolved: 11,
       failed: 0,
     });
     expect(fetchImpl).not.toHaveBeenCalled();
@@ -303,8 +303,8 @@ describe("Pokémon artwork sync", () => {
       requestDelayMs: 0,
     });
     expect(result).toMatchObject({
-      attempted: 69,
-      resolved: 68,
+      attempted: 89,
+      resolved: 77,
       failed: 1,
     });
     expect(
@@ -364,9 +364,9 @@ describe("Pokémon artwork sync", () => {
     });
 
     expect(result).toMatchObject({
-      totalPrintings: 70,
-      resolved: 70,
-      unresolved: 0,
+      totalPrintings: 90,
+      resolved: 79,
+      unresolved: 11,
       failed: 0,
     });
     expect(
@@ -497,9 +497,9 @@ describe("Pokémon artwork sync", () => {
     });
 
     expect(result).toMatchObject({
-      totalPrintings: 71,
-      resolved: 71,
-      unresolved: 0,
+      totalPrintings: 91,
+      resolved: 80,
+      unresolved: 11,
       failed: 0,
     });
     expect(
@@ -568,9 +568,9 @@ describe("Pokémon artwork sync", () => {
     });
 
     expect(result).toMatchObject({
-      totalPrintings: 70,
-      resolved: 69,
-      unresolved: 1,
+      totalPrintings: 90,
+      resolved: 78,
+      unresolved: 12,
       failed: 0,
     });
     expect(result.issues).toContainEqual(

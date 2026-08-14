@@ -63,19 +63,19 @@ describe("profile management", () => {
     const duplicateCards = collectionService.listCollection(duplicate.slug);
 
     expect(duplicate.slug).toBe("my-collection-copy");
-    expect(sourceCards).toHaveLength(69);
-    expect(duplicateCards).toHaveLength(69);
-    expect(physicalCards(connection, source.id)).toBe(72);
-    expect(physicalCards(connection, duplicate.id)).toBe(72);
-    expect(connection.db.select().from(cardPrintings).all()).toHaveLength(69);
-    expect(connection.db.select().from(ownedCards).all()).toHaveLength(138);
+    expect(sourceCards).toHaveLength(89);
+    expect(duplicateCards).toHaveLength(89);
+    expect(physicalCards(connection, source.id)).toBe(93);
+    expect(physicalCards(connection, duplicate.id)).toBe(93);
+    expect(connection.db.select().from(cardPrintings).all()).toHaveLength(89);
+    expect(connection.db.select().from(ownedCards).all()).toHaveLength(178);
     expect(
       connection.db
         .select()
         .from(importRecords)
         .where(eq(importRecords.profileId, duplicate.id))
         .all(),
-    ).toHaveLength(69);
+    ).toHaveLength(89);
 
     const sourceAbra = sourceCards.find((card) => card.name === "Abra");
     const duplicateAbra = duplicateCards.find(
@@ -205,9 +205,9 @@ describe("profile management", () => {
         .all(),
     ).toEqual([]);
     expect(collectionService.listCollection(defaultProfileSlug)).toHaveLength(
-      69,
+      89,
     );
-    expect(connection.db.select().from(cardPrintings).all()).toHaveLength(69);
+    expect(connection.db.select().from(cardPrintings).all()).toHaveLength(89);
     expect(
       connection.db
         .select({ imageUrl: cardPrintings.imageUrl })
