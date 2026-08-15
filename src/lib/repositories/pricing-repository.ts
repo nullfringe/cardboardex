@@ -4,6 +4,11 @@ import { and, desc, eq, inArray, isNull, or } from "drizzle-orm";
 
 import type { AppDatabase } from "@/db/client";
 import { marketPriceObservations, ownedCards } from "@/db/schema";
+import {
+  DEFAULT_MARKET_CONDITION,
+  marketConditionFromText,
+  type MarketCondition,
+} from "@/lib/pricing/conditions";
 import { selectEstimateAmount } from "@/lib/pricing/money";
 import type { MarketPriceEstimate } from "@/lib/types/pricing";
 
@@ -12,11 +17,13 @@ type EstimableCollectionItem = {
   ownedCardId: number;
   printingId: number;
   sealed: boolean;
+  condition?: string | null;
   marketEstimate: MarketPriceEstimate | null;
 };
 
 function estimateFromObservation(
   observation: PriceObservation,
+  conditionAssumed = false,
 ): MarketPriceEstimate | null {
   const selected = selectEstimateAmount(observation);
   if (!selected) return null;
@@ -26,7 +33,10 @@ function estimateFromObservation(
     ownedCardId: observation.ownedCardId,
     provider: observation.provider,
     providerProductId: observation.providerProductId,
+    providerSkuId: observation.providerSkuId,
     providerVariant: observation.providerVariant,
+    priceCondition: observation.priceCondition,
+    conditionAssumed,
     currency: observation.currency,
     unitAmountMinor: selected.amount,
     basis: selected.basis,
@@ -46,7 +56,10 @@ function estimateFromObservation(
 export class PricingRepository {
   constructor(private readonly db: AppDatabase) {}
 
-  attachEstimates<T extends EstimableCollectionItem>(items: T[]): T[] {
+  attachEstimates<T extends EstimableCollectionItem>(
+    items: T[],
+    defaultPricingCondition: MarketCondition = DEFAULT_MARKET_CONDITION,
+  ): T[] {
     if (items.length === 0) return items;
     const ownedCardIds = items.map((item) => item.ownedCardId);
     const printingIds = [...new Set(items.map((item) => item.printingId))];
@@ -67,7 +80,10 @@ export class PricingRepository {
       .all();
 
     const latestManualByOwnedCard = new Map<number, PriceObservation>();
-    const latestProviderByPrinting = new Map<number, PriceObservation>();
+    const latestProviderByPrintingAndCondition = new Map<
+      string,
+      PriceObservation
+    >();
     for (const observation of observations) {
       if (
         observation.ownedCardId !== null &&
@@ -78,10 +94,12 @@ export class PricingRepository {
       }
       if (
         observation.ownedCardId === null &&
-        observation.observationType === "provider" &&
-        !latestProviderByPrinting.has(observation.printingId)
+        observation.observationType === "provider"
       ) {
-        latestProviderByPrinting.set(observation.printingId, observation);
+        const key = `${observation.printingId}:${observation.priceCondition ?? "product"}`;
+        if (!latestProviderByPrintingAndCondition.has(key)) {
+          latestProviderByPrintingAndCondition.set(key, observation);
+        }
       }
     }
 
@@ -91,9 +109,20 @@ export class PricingRepository {
         manual?.observationType === "manual-set"
           ? estimateFromObservation(manual)
           : null;
-      const provider = latestProviderByPrinting.get(item.printingId);
+      const ownedCondition = marketConditionFromText(item.condition);
+      const priceCondition = ownedCondition ?? defaultPricingCondition;
+      const provider =
+        latestProviderByPrintingAndCondition.get(
+          `${item.printingId}:${priceCondition}`,
+        ) ??
+        latestProviderByPrintingAndCondition.get(`${item.printingId}:product`);
       const providerEstimate =
-        !item.sealed && provider ? estimateFromObservation(provider) : null;
+        !item.sealed && provider
+          ? estimateFromObservation(
+              provider,
+              ownedCondition === null && provider.priceCondition !== null,
+            )
+          : null;
       return {
         ...item,
         marketEstimate: manualEstimate ?? providerEstimate,
@@ -104,13 +133,19 @@ export class PricingRepository {
   getOwnedPrinting(
     profileId: number,
     ownedCardId: number,
-  ): { ownedCardId: number; printingId: number; sealed: boolean } | null {
+  ): {
+    ownedCardId: number;
+    printingId: number;
+    sealed: boolean;
+    condition: string | null;
+  } | null {
     return (
       this.db
         .select({
           ownedCardId: ownedCards.id,
           printingId: ownedCards.printingId,
           sealed: ownedCards.sealed,
+          condition: ownedCards.condition,
         })
         .from(ownedCards)
         .where(

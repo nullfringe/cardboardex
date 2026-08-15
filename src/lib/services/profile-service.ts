@@ -6,6 +6,7 @@ import {
   ProfileRepository,
 } from "@/lib/repositories/profile-repository";
 import { profileSlugFromName } from "@/lib/profiles/slug";
+import { MARKET_CONDITIONS } from "@/lib/pricing/conditions";
 import type {
   CreateProfileInput,
   DeleteProfileResult,
@@ -28,7 +29,18 @@ export const profileSlugSchema = z
   .regex(/^[a-z0-9]+(?:-[a-z0-9]+)*$/u, "Profile identifier is invalid.");
 
 const createProfileSchema = z.object({ name: profileName }).strict();
-const updateProfileSchema = z.object({ name: profileName }).strict();
+const renameProfileSchema = z.object({ name: profileName }).strict();
+const updateProfileSchema = z
+  .object({
+    name: profileName.optional(),
+    defaultPricingCondition: z.enum(MARKET_CONDITIONS).optional(),
+  })
+  .strict()
+  .refine(
+    (value) =>
+      value.name !== undefined || value.defaultPricingCondition !== undefined,
+    { message: "At least one profile setting is required." },
+  );
 const duplicateProfileSchema = z.object({ name: profileName }).strict();
 
 export class ProfileNotFoundError extends Error {
@@ -67,13 +79,32 @@ export class ProfileService {
 
   renameProfile(slug: string, input: UpdateProfileInput): Profile {
     const parsedSlug = profileSlugSchema.parse(slug);
-    const parsed = updateProfileSchema.parse(input);
+    const parsed = renameProfileSchema.parse(input);
     const profile = this.repository.rename(
       parsedSlug,
       parsed.name,
       profileSlugFromName(parsed.name),
     );
     if (!profile) throw new ProfileNotFoundError();
+    return profile;
+  }
+
+  updateProfile(slug: string, input: UpdateProfileInput): Profile {
+    const parsedSlug = profileSlugSchema.parse(slug);
+    const parsed = updateProfileSchema.parse(input);
+    let profile = this.requireProfile(parsedSlug);
+
+    if (parsed.name !== undefined) {
+      profile = this.renameProfile(parsedSlug, { name: parsed.name });
+    }
+    if (parsed.defaultPricingCondition !== undefined) {
+      const updated = this.repository.setDefaultPricingCondition(
+        profile.slug,
+        parsed.defaultPricingCondition,
+      );
+      if (!updated) throw new ProfileNotFoundError();
+      profile = updated;
+    }
     return profile;
   }
 

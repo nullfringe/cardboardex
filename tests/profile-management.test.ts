@@ -243,4 +243,26 @@ describe("profile management", () => {
       { slug: defaultProfileSlug },
     ]);
   });
+
+  it("stores and copies each profile's unknown-condition pricing assumption", () => {
+    const profiles = createProfileService(connection.db);
+
+    expect(
+      profiles.requireProfile(defaultProfileSlug).defaultPricingCondition,
+    ).toBe("Lightly Played");
+    const updated = profiles.updateProfile(defaultProfileSlug, {
+      defaultPricingCondition: "Moderately Played",
+    });
+    expect(updated.defaultPricingCondition).toBe("Moderately Played");
+
+    const duplicate = profiles.duplicateProfile(defaultProfileSlug, {
+      name: "Condition Copy",
+    });
+    expect(duplicate.defaultPricingCondition).toBe("Moderately Played");
+    expect(() =>
+      profiles.updateProfile(defaultProfileSlug, {
+        defaultPricingCondition: "Poor" as never,
+      }),
+    ).toThrow();
+  });
 });

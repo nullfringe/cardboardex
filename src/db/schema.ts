@@ -9,6 +9,8 @@ import {
   uniqueIndex,
 } from "drizzle-orm/sqlite-core";
 
+import type { MarketCondition } from "@/lib/pricing/conditions";
+
 export type PrintingMetadata = {
   identificationConfidence?: string;
   visibleMoveOrEffect1?: string;
@@ -25,17 +27,30 @@ export type OwnedCardMetadata = {
 
 export type RawImportRow = Record<string, string>;
 
-export const profiles = sqliteTable("profiles", {
-  id: integer("id").primaryKey({ autoIncrement: true }),
-  slug: text("slug").notNull().unique(),
-  name: text("name").notNull(),
-  createdAt: text("created_at")
-    .notNull()
-    .default(sql`CURRENT_TIMESTAMP`),
-  updatedAt: text("updated_at")
-    .notNull()
-    .default(sql`CURRENT_TIMESTAMP`),
-});
+export const profiles = sqliteTable(
+  "profiles",
+  {
+    id: integer("id").primaryKey({ autoIncrement: true }),
+    slug: text("slug").notNull().unique(),
+    name: text("name").notNull(),
+    defaultPricingCondition: text("default_pricing_condition")
+      .$type<MarketCondition>()
+      .notNull()
+      .default("Lightly Played"),
+    createdAt: text("created_at")
+      .notNull()
+      .default(sql`CURRENT_TIMESTAMP`),
+    updatedAt: text("updated_at")
+      .notNull()
+      .default(sql`CURRENT_TIMESTAMP`),
+  },
+  (table) => [
+    check(
+      "profiles_default_pricing_condition",
+      sql`${table.defaultPricingCondition} IN ('Near Mint', 'Lightly Played', 'Moderately Played', 'Heavily Played', 'Damaged')`,
+    ),
+  ],
+);
 
 export const profileSlugAliases = sqliteTable(
   "profile_slug_aliases",
@@ -356,7 +371,9 @@ export const marketPriceObservations = sqliteTable(
     ownedCardId: integer("owned_card_id"),
     provider: text("provider").notNull(),
     providerProductId: text("provider_product_id"),
+    providerSkuId: text("provider_sku_id"),
     providerVariant: text("provider_variant"),
+    priceCondition: text("price_condition").$type<MarketCondition>(),
     currency: text("currency").notNull(),
     marketPriceMinor: integer("market_price_minor"),
     lowPriceMinor: integer("low_price_minor"),
@@ -394,6 +411,16 @@ export const marketPriceObservations = sqliteTable(
     index("market_price_observations_owned_card_index").on(
       table.ownedCardId,
       table.id,
+    ),
+    index("market_price_observations_condition_index").on(
+      table.printingId,
+      table.priceCondition,
+      table.provider,
+      table.id,
+    ),
+    check(
+      "market_price_observations_price_condition",
+      sql`${table.priceCondition} IS NULL OR ${table.priceCondition} IN ('Near Mint', 'Lightly Played', 'Moderately Played', 'Heavily Played', 'Damaged')`,
     ),
     check(
       "market_price_observations_currency_code",

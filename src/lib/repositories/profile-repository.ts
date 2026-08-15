@@ -8,6 +8,7 @@ import {
   profileSlugAliases,
 } from "@/db/schema";
 import type { DeleteProfileResult, Profile } from "@/lib/types/profile";
+import type { MarketCondition } from "@/lib/pricing/conditions";
 
 export const DEFAULT_PROFILE_SLUG = "my-collection";
 export const DEFAULT_PROFILE_NAME = "My Collection";
@@ -16,6 +17,7 @@ const profileSelection = {
   id: profiles.id,
   slug: profiles.slug,
   name: profiles.name,
+  defaultPricingCondition: profiles.defaultPricingCondition,
   createdAt: profiles.createdAt,
   updatedAt: profiles.updatedAt,
 };
@@ -174,6 +176,23 @@ export class ProfileRepository {
     });
   }
 
+  setDefaultPricingCondition(
+    slug: string,
+    condition: MarketCondition,
+  ): Profile | null {
+    const source = this.getBySlug(slug);
+    if (!source) return null;
+    this.db
+      .update(profiles)
+      .set({
+        defaultPricingCondition: condition,
+        updatedAt: sql`CURRENT_TIMESTAMP`,
+      })
+      .where(eq(profiles.id, source.id))
+      .run();
+    return this.getBySlug(source.slug);
+  }
+
   duplicate(
     sourceSlug: string,
     name: string,
@@ -215,7 +234,11 @@ export class ProfileRepository {
 
       const duplicate = tx
         .insert(profiles)
-        .values({ slug, name })
+        .values({
+          slug,
+          name,
+          defaultPricingCondition: source.defaultPricingCondition,
+        })
         .returning(profileSelection)
         .get();
       const sourceOwnedCards = tx

@@ -43,6 +43,7 @@ export function formatMarketPriceSyncResult(
   const lines = [
     `${result.dryRun ? "Validated" : "Checked"} ${result.totalPrintings} Pokémon TCG printings for market prices.`,
     `${result.priced} priced: ${result.newObservations} ${result.dryRun ? "new projected" : "new"} observations, ${result.unchangedObservations} unchanged; ${result.unresolved} unresolved; ${result.failed} failed.`,
+    `${result.conditionPriced} printings have condition-level prices; ${result.conditionUnresolved} have only a product-level reference.`,
   ];
   if (result.dryRun) {
     lines.push(

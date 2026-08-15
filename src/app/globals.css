@@ -201,13 +201,22 @@ img {
   gap: 7px;
 }
 
-.profile-manager__panel input {
+.profile-manager__panel input,
+.profile-manager__panel select {
   min-width: 0;
   border: 1px solid var(--line-strong);
   border-radius: 8px;
   background: var(--surface-soft);
   color: var(--text);
   padding: 8px 10px;
+}
+
+.profile-manager__panel select {
+  cursor: pointer;
+}
+
+.profile-manager__pricing small {
+  line-height: 1.45;
 }
 
 .profile-manager__import {
@@ -621,6 +630,20 @@ img {
   border: 1px solid var(--line);
   border-radius: 12px;
   background: var(--line);
+}
+
+.collection-valuation-summary {
+  display: grid;
+  justify-items: end;
+  gap: 7px;
+}
+
+.collection-valuation-summary__assumption {
+  max-width: 420px;
+  color: var(--muted);
+  font-size: 10px;
+  line-height: 1.4;
+  text-align: right;
 }
 
 .collection-counts div {

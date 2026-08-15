@@ -9,6 +9,10 @@ import {
   profileSlugSchema,
 } from "@/lib/services/profile-service";
 import type { CollectionListItem } from "@/lib/types/collection";
+import {
+  DEFAULT_MARKET_CONDITION,
+  type MarketCondition,
+} from "@/lib/pricing/conditions";
 import type {
   MarketPriceEstimate,
   ProfileValuationSummary,
@@ -47,19 +51,25 @@ export class PricingService {
     private readonly profiles: ProfileRepository,
   ) {}
 
-  private profileId(profileSlug: string): number {
+  private profile(profileSlug: string) {
     const profile = this.profiles.getBySlug(
       profileSlugSchema.parse(profileSlug),
     );
     if (!profile) throw new ProfileNotFoundError();
-    return profile.id;
+    return profile;
   }
 
-  attachEstimates<T extends CollectionListItem>(items: T[]): T[] {
-    return this.repository.attachEstimates(items);
+  attachEstimates<T extends CollectionListItem>(
+    items: T[],
+    defaultPricingCondition: MarketCondition = DEFAULT_MARKET_CONDITION,
+  ): T[] {
+    return this.repository.attachEstimates(items, defaultPricingCondition);
   }
 
-  summarize(items: CollectionListItem[]): ProfileValuationSummary {
+  summarize(
+    items: CollectionListItem[],
+    defaultPricingCondition: MarketCondition = DEFAULT_MARKET_CONDITION,
+  ): ProfileValuationSummary {
     return items.reduce<ProfileValuationSummary>(
       (summary, item) => {
         summary.totalEntries += 1;
@@ -71,6 +81,10 @@ export class PricingService {
             item.marketEstimate,
             item.quantity,
           );
+          if (item.marketEstimate.conditionAssumed) {
+            summary.assumedEntries += 1;
+            summary.assumedPhysicalCards += item.quantity;
+          }
         }
         return summary;
       },
@@ -81,6 +95,9 @@ export class PricingService {
         totalEntries: 0,
         valuedPhysicalCards: 0,
         totalPhysicalCards: 0,
+        assumedEntries: 0,
+        assumedPhysicalCards: 0,
+        defaultPricingCondition,
       },
     );
   }
@@ -94,7 +111,7 @@ export class PricingService {
     const amountMinor = decimalAmountToMinor(parsed.amount);
     if (amountMinor === null) throw new Error("Invalid manual estimate.");
     const saved = this.repository.setManualEstimate(
-      this.profileId(profileSlug),
+      this.profile(profileSlug).id,
       positiveId(ownedCardId),
       amountMinor,
       parsed.note,
@@ -108,7 +125,7 @@ export class PricingService {
     ownedCardId: number,
   ): MarketPriceEstimate | null | undefined {
     const cleared = this.repository.clearManualEstimate(
-      this.profileId(profileSlug),
+      this.profile(profileSlug).id,
       positiveId(ownedCardId),
     );
     if (!cleared) return undefined;
@@ -119,20 +136,24 @@ export class PricingService {
     profileSlug: string,
     ownedCardId: number,
   ): MarketPriceEstimate | null | undefined {
-    const profileId = this.profileId(profileSlug);
+    const profile = this.profile(profileSlug);
     const owned = this.repository.getOwnedPrinting(
-      profileId,
+      profile.id,
       positiveId(ownedCardId),
     );
     if (!owned) return undefined;
-    const [item] = this.repository.attachEstimates([
-      {
-        ownedCardId: owned.ownedCardId,
-        printingId: owned.printingId,
-        sealed: owned.sealed,
-        marketEstimate: null,
-      },
-    ]);
+    const [item] = this.repository.attachEstimates(
+      [
+        {
+          ownedCardId: owned.ownedCardId,
+          printingId: owned.printingId,
+          sealed: owned.sealed,
+          condition: owned.condition,
+          marketEstimate: null,
+        },
+      ],
+      profile.defaultPricingCondition,
+    );
     return item?.marketEstimate ?? null;
   }
 }
