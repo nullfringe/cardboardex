@@ -1,3 +1,4 @@
+import type { MarketCondition } from "@/lib/pricing/conditions";
 import type { MarketPriceEstimate } from "@/lib/types/pricing";
 
 export type CollectionSortField =
@@ -55,6 +56,7 @@ export type CollectionListItem = {
   hp: number | null;
   quantity: number;
   condition: string | null;
+  pricingConditionOverride: MarketCondition | null;
   finishVariant: string | null;
   sealed: boolean;
   imageProvider: string | null;
@@ -140,6 +142,7 @@ export type CollectionFacets = {
 export type UpdateOwnedCardInput = {
   quantity?: number;
   condition?: string | null;
+  pricingConditionOverride?: MarketCondition | null;
   finishVariant?: string | null;
   sealed?: boolean;
   notes?: string | null;

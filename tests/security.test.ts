@@ -249,6 +249,19 @@ describe("same-origin collection CSV uploads", () => {
 describe("mutation validation and error handling", () => {
   it("rejects unknown fields and validation boundary overflows", () => {
     expect(
+      updateOwnedCardSchema.safeParse({
+        pricingConditionOverride: "Near Mint",
+      }).success,
+    ).toBe(true);
+    expect(
+      updateOwnedCardSchema.safeParse({ pricingConditionOverride: null })
+        .success,
+    ).toBe(true);
+    expect(
+      updateOwnedCardSchema.safeParse({ pricingConditionOverride: "Poor" })
+        .success,
+    ).toBe(false);
+    expect(
       updateOwnedCardSchema.safeParse({ quantity: 1, publishedName: "Abra" })
         .success,
     ).toBe(false);

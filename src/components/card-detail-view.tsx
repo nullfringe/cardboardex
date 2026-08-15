@@ -273,7 +273,7 @@ export function CardDetailView({
                       label="Price condition"
                       value={
                         card.marketEstimate.priceCondition
-                          ? `${card.marketEstimate.priceCondition}${card.marketEstimate.conditionAssumed ? " (assumed)" : ""}`
+                          ? `${card.marketEstimate.priceCondition}${card.marketEstimate.conditionOverridden ? " (per-card override)" : card.marketEstimate.conditionAssumed ? " (profile assumption)" : ""}`
                           : "Unspecified"
                       }
                     />
@@ -323,9 +323,11 @@ export function CardDetailView({
                   {!card.marketEstimate.manual ? (
                     <p className="market-value__caveat">
                       {card.marketEstimate.priceCondition
-                        ? card.marketEstimate.conditionAssumed
-                          ? `The recorded condition is unknown, so this ungraded estimate uses the profile's ${card.marketEstimate.priceCondition} assumption.`
-                          : `Ungraded ${card.marketEstimate.priceCondition} market estimate based on this copy's recorded condition.`
+                        ? card.marketEstimate.conditionOverridden
+                          ? `This ungraded estimate uses the per-card ${card.marketEstimate.priceCondition} pricing override; the recorded condition is unchanged.`
+                          : card.marketEstimate.conditionAssumed
+                            ? `The recorded condition is unknown, so this ungraded estimate uses the profile's ${card.marketEstimate.priceCondition} assumption.`
+                            : `Ungraded ${card.marketEstimate.priceCondition} market estimate based on this copy's recorded condition.`
                         : "Condition-level pricing was unavailable, so this is an unadjusted product-level market reference."}
                     </p>
                   ) : null}

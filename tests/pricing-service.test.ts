@@ -164,6 +164,7 @@ describe("collection market valuation", () => {
       unitAmountMinor: 180,
       priceCondition: "Lightly Played",
       conditionAssumed: true,
+      conditionOverridden: false,
     });
     expect(pricing.summarize([item], "Lightly Played")).toMatchObject({
       estimatedValueMinor: 360,
@@ -181,16 +182,54 @@ describe("collection market valuation", () => {
       unitAmountMinor: 125,
       priceCondition: "Moderately Played",
       conditionAssumed: true,
+      conditionOverridden: false,
     });
 
     collection.updateOwnedCard("my-collection", created.ownedCardId, {
-      condition: "Near Mint",
+      condition: "Moderately Played",
+      pricingConditionOverride: "Near Mint",
     });
     item = collection.listCollection("my-collection")[0]!;
+    expect(item).toMatchObject({
+      condition: "Moderately Played",
+      pricingConditionOverride: "Near Mint",
+    });
     expect(item.marketEstimate).toMatchObject({
       unitAmountMinor: 250,
       priceCondition: "Near Mint",
       conditionAssumed: false,
+      conditionOverridden: true,
+    });
+
+    pricing.setManualEstimate("my-collection", created.ownedCardId, {
+      amount: "9.99",
+    });
+    expect(
+      collection.listCollection("my-collection")[0]!.marketEstimate,
+    ).toMatchObject({
+      unitAmountMinor: 999,
+      manual: true,
+      conditionOverridden: false,
+    });
+    pricing.clearManualEstimate("my-collection", created.ownedCardId);
+    expect(
+      collection.listCollection("my-collection")[0]!.marketEstimate,
+    ).toMatchObject({
+      unitAmountMinor: 250,
+      priceCondition: "Near Mint",
+      conditionOverridden: true,
+    });
+
+    collection.updateOwnedCard("my-collection", created.ownedCardId, {
+      pricingConditionOverride: null,
+    });
+    item = collection.listCollection("my-collection")[0]!;
+    expect(item.pricingConditionOverride).toBeNull();
+    expect(item.marketEstimate).toMatchObject({
+      unitAmountMinor: 125,
+      priceCondition: "Moderately Played",
+      conditionAssumed: false,
+      conditionOverridden: false,
     });
   });
 

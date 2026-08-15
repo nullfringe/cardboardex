@@ -329,6 +329,9 @@ export const ownedCards = sqliteTable(
       }),
     quantity: integer("quantity").notNull(),
     condition: text("condition"),
+    pricingConditionOverride: text(
+      "pricing_condition_override",
+    ).$type<MarketCondition>(),
     finishVariant: text("finish_variant"),
     sealed: integer("sealed", { mode: "boolean" }).notNull().default(false),
     notes: text("notes"),
@@ -345,6 +348,10 @@ export const ownedCards = sqliteTable(
   },
   (table) => [
     check("owned_cards_quantity_positive", sql`${table.quantity} > 0`),
+    check(
+      "owned_cards_pricing_condition_override",
+      sql`${table.pricingConditionOverride} IS NULL OR ${table.pricingConditionOverride} IN ('Near Mint', 'Lightly Played', 'Moderately Played', 'Heavily Played', 'Damaged')`,
+    ),
     uniqueIndex("owned_cards_id_profile_unique").on(table.id, table.profileId),
     uniqueIndex("owned_cards_id_printing_unique").on(
       table.id,

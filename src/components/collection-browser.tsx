@@ -271,8 +271,8 @@ function CollectionCard({ item }: { item: CollectionListItem }) {
             className="card-tile__value"
             title={
               item.quantity > 1
-                ? `${formatMoney(item.marketEstimate.unitAmountMinor, item.marketEstimate.currency)} per card × ${item.quantity}${estimateCondition ? ` · ${estimateCondition}${item.marketEstimate.conditionAssumed ? " assumed" : ""}` : " · condition-unadjusted"}`
-                : `Ungraded per-card market estimate · ${estimateCondition ? `${estimateCondition}${item.marketEstimate.conditionAssumed ? " assumed" : ""}` : "condition-unadjusted"}`
+                ? `${formatMoney(item.marketEstimate.unitAmountMinor, item.marketEstimate.currency)} per card × ${item.quantity}${estimateCondition ? ` · ${estimateCondition}${item.marketEstimate.conditionOverridden ? " per-card override" : item.marketEstimate.conditionAssumed ? " profile assumption" : ""}` : " · condition-unadjusted"}`
+                : `Ungraded per-card market estimate · ${estimateCondition ? `${estimateCondition}${item.marketEstimate.conditionOverridden ? " per-card override" : item.marketEstimate.conditionAssumed ? " profile assumption" : ""}` : "condition-unadjusted"}`
             }
           >
             {formatMoney(lotValue, item.marketEstimate.currency)} est.
@@ -281,7 +281,11 @@ function CollectionCard({ item }: { item: CollectionListItem }) {
               <small>
                 {" "}
                 {abbreviatedMarketCondition(estimateCondition)}
-                {item.marketEstimate.conditionAssumed ? "*" : ""}
+                {item.marketEstimate.conditionOverridden
+                  ? " override"
+                  : item.marketEstimate.conditionAssumed
+                    ? "*"
+                    : ""}
               </small>
             ) : null}
           </p>

@@ -149,6 +149,7 @@ export class PricingService {
           printingId: owned.printingId,
           sealed: owned.sealed,
           condition: owned.condition,
+          pricingConditionOverride: owned.pricingConditionOverride,
           marketEstimate: null,
         },
       ],

@@ -57,6 +57,13 @@
       "when": 1786750200000,
       "tag": "0007_condition_aware_pricing",
       "breakpoints": true
+    },
+    {
+      "idx": 8,
+      "version": "6",
+      "when": 1786762800000,
+      "tag": "0008_per_card_pricing_condition",
+      "breakpoints": true
     }
   ]
 }

@@ -18,12 +18,14 @@ type EstimableCollectionItem = {
   printingId: number;
   sealed: boolean;
   condition?: string | null;
+  pricingConditionOverride?: MarketCondition | null;
   marketEstimate: MarketPriceEstimate | null;
 };
 
 function estimateFromObservation(
   observation: PriceObservation,
   conditionAssumed = false,
+  conditionOverridden = false,
 ): MarketPriceEstimate | null {
   const selected = selectEstimateAmount(observation);
   if (!selected) return null;
@@ -37,6 +39,7 @@ function estimateFromObservation(
     providerVariant: observation.providerVariant,
     priceCondition: observation.priceCondition,
     conditionAssumed,
+    conditionOverridden,
     currency: observation.currency,
     unitAmountMinor: selected.amount,
     basis: selected.basis,
@@ -109,8 +112,10 @@ export class PricingRepository {
         manual?.observationType === "manual-set"
           ? estimateFromObservation(manual)
           : null;
+      const pricingConditionOverride = item.pricingConditionOverride ?? null;
       const ownedCondition = marketConditionFromText(item.condition);
-      const priceCondition = ownedCondition ?? defaultPricingCondition;
+      const priceCondition =
+        pricingConditionOverride ?? ownedCondition ?? defaultPricingCondition;
       const provider =
         latestProviderByPrintingAndCondition.get(
           `${item.printingId}:${priceCondition}`,
@@ -120,7 +125,11 @@ export class PricingRepository {
         !item.sealed && provider
           ? estimateFromObservation(
               provider,
-              ownedCondition === null && provider.priceCondition !== null,
+              pricingConditionOverride === null &&
+                ownedCondition === null &&
+                provider.priceCondition !== null,
+              pricingConditionOverride !== null &&
+                provider.priceCondition !== null,
             )
           : null;
       return {
@@ -138,6 +147,7 @@ export class PricingRepository {
     printingId: number;
     sealed: boolean;
     condition: string | null;
+    pricingConditionOverride: MarketCondition | null;
   } | null {
     return (
       this.db
@@ -146,6 +156,7 @@ export class PricingRepository {
           printingId: ownedCards.printingId,
           sealed: ownedCards.sealed,
           condition: ownedCards.condition,
+          pricingConditionOverride: ownedCards.pricingConditionOverride,
         })
         .from(ownedCards)
         .where(

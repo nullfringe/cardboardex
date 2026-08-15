@@ -74,6 +74,13 @@ describe("condition-aware pricing migration", () => {
       .run();
     connection.sqlite
       .prepare(
+        `INSERT INTO owned_cards
+          (id, profile_id, printing_id, quantity, condition)
+         VALUES (4, 1, 3, 1, 'Moderately Played')`,
+      )
+      .run();
+    connection.sqlite
+      .prepare(
         `INSERT INTO market_price_observations
           (printing_id, provider, provider_product_id, provider_variant,
            currency, market_price_minor, observation_type, observation_key)
@@ -108,6 +115,17 @@ describe("condition-aware pricing migration", () => {
       provider_sku_id: null,
       price_condition: null,
       market_price_minor: 125,
+    });
+    expect(
+      connection.sqlite
+        .prepare(
+          `SELECT condition, pricing_condition_override
+             FROM owned_cards WHERE id = 4`,
+        )
+        .get(),
+    ).toEqual({
+      condition: "Moderately Played",
+      pricing_condition_override: null,
     });
     expect(connection.sqlite.pragma("foreign_key_check")).toEqual([]);
   });

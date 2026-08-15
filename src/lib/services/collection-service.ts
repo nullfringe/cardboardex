@@ -2,6 +2,7 @@ import { z } from "zod";
 
 import { getDatabase, type AppDatabase } from "@/db/client";
 import { applyCardImagePolicy } from "@/lib/images/card-image-provider";
+import { MARKET_CONDITIONS } from "@/lib/pricing/conditions";
 import { CollectionRepository } from "@/lib/repositories/collection-repository";
 import { PricingRepository } from "@/lib/repositories/pricing-repository";
 import { ProfileRepository } from "@/lib/repositories/profile-repository";
@@ -121,6 +122,7 @@ export const updateOwnedCardSchema = z
   .object({
     quantity: z.number().int().positive().max(1_000_000).optional(),
     condition: nullableText("Condition", 200),
+    pricingConditionOverride: z.enum(MARKET_CONDITIONS).nullable().optional(),
     finishVariant: nullableText("Finish / variant", 500),
     sealed: z.boolean().optional(),
     notes: nullableText("Notes"),
@@ -130,6 +132,7 @@ export const updateOwnedCardSchema = z
     (value) =>
       value.quantity !== undefined ||
       value.condition !== undefined ||
+      value.pricingConditionOverride !== undefined ||
       value.finishVariant !== undefined ||
       value.sealed !== undefined ||
       value.notes !== undefined,

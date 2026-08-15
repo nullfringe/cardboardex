@@ -12,6 +12,7 @@ export type MarketPriceEstimate = {
   providerVariant: string | null;
   priceCondition: MarketCondition | null;
   conditionAssumed: boolean;
+  conditionOverridden: boolean;
   currency: string;
   unitAmountMinor: number;
   basis: PriceBasis;

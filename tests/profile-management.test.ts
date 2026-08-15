@@ -55,6 +55,15 @@ describe("profile management", () => {
       })
       .where(eq(cardPrintings.name, "Abra"))
       .run();
+    const sourceAbraBeforeDuplicate = collectionService
+      .listCollection(defaultProfileSlug)
+      .find((card) => card.name === "Abra");
+    if (!sourceAbraBeforeDuplicate) throw new Error("Expected source Abra");
+    collectionService.updateOwnedCard(
+      defaultProfileSlug,
+      sourceAbraBeforeDuplicate.ownedCardId,
+      { pricingConditionOverride: "Near Mint" },
+    );
 
     const duplicate = profileService.duplicateProfile(defaultProfileSlug, {
       name: "My Collection Copy",
@@ -85,12 +94,14 @@ describe("profile management", () => {
 
     expect(duplicateAbra.ownedCardId).not.toBe(sourceAbra.ownedCardId);
     expect(duplicateAbra.printingId).toBe(sourceAbra.printingId);
+    expect(duplicateAbra.pricingConditionOverride).toBe("Near Mint");
     collectionService.updateOwnedCard(
       duplicate.slug,
       duplicateAbra.ownedCardId,
       {
         quantity: 4,
         condition: "Lightly Played",
+        pricingConditionOverride: "Damaged",
         notes: "Changed in the duplicate",
       },
     );
@@ -102,6 +113,7 @@ describe("profile management", () => {
     ).toMatchObject({
       quantity: 1,
       condition: null,
+      pricingConditionOverride: "Near Mint",
       notes: expect.stringContaining("tentatively Moderately Played"),
     });
     expect(
@@ -112,6 +124,7 @@ describe("profile management", () => {
     ).toMatchObject({
       quantity: 4,
       condition: "Lightly Played",
+      pricingConditionOverride: "Damaged",
       notes: "Changed in the duplicate",
     });
     expect(
@@ -136,6 +149,12 @@ describe("profile management", () => {
       )
       .get();
     importCollectionCsv(connection.db, fixture, { profileId: source.id });
+    expect(
+      collectionService.getCollectionEntry(
+        defaultProfileSlug,
+        sourceAbra.ownedCardId,
+      ),
+    ).toMatchObject({ pricingConditionOverride: "Near Mint" });
     expect(
       connection.db
         .select({
