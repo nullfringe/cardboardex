@@ -1,7 +1,10 @@
+import type { MarketCondition } from "@/lib/pricing/conditions";
+
 export type Profile = {
   id: number;
   slug: string;
   name: string;
+  defaultPricingCondition: MarketCondition;
   createdAt: string;
   updatedAt: string;
 };
@@ -11,7 +14,8 @@ export type CreateProfileInput = {
 };
 
 export type UpdateProfileInput = {
-  name: string;
+  name?: string;
+  defaultPricingCondition?: MarketCondition;
 };
 
 export type DuplicateProfileInput = {

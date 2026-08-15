@@ -50,6 +50,20 @@
       "when": 1786746000000,
       "tag": "0006_market_price_observations",
       "breakpoints": true
+    },
+    {
+      "idx": 7,
+      "version": "6",
+      "when": 1786750200000,
+      "tag": "0007_condition_aware_pricing",
+      "breakpoints": true
+    },
+    {
+      "idx": 8,
+      "version": "6",
+      "when": 1786762800000,
+      "tag": "0008_per_card_pricing_condition",
+      "breakpoints": true
     }
   ]
 }

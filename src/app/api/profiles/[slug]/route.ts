@@ -22,7 +22,7 @@ export async function PATCH(request: Request, context: RouteContext) {
     if (!parsedRequest.ok) return parsedRequest.response;
 
     const { slug } = await context.params;
-    const profile = getProfileService().renameProfile(
+    const profile = getProfileService().updateProfile(
       slug,
       parsedRequest.body as UpdateProfileInput,
     );

@@ -28,7 +28,10 @@ export default async function CollectionPage({
   const service = getCollectionService();
   const items = service.listCollection(profile.slug);
   const facets = service.getCollectionFacets(profile.slug);
-  const valuation = getPricingService().summarize(items);
+  const valuation = getPricingService().summarize(
+    items,
+    profile.defaultPricingCondition,
+  );
 
   return (
     <div className="app-shell">

@@ -26,6 +26,7 @@ import {
   profiles,
 } from "@/db/schema";
 import { languageName } from "@/lib/languages";
+import type { MarketCondition } from "@/lib/pricing/conditions";
 import {
   collectorIdentifierKey,
   collectorIdentifierSort,
@@ -106,6 +107,7 @@ const listSelection = {
   hp: pokemonDetails.hp,
   quantity: ownedCards.quantity,
   condition: ownedCards.condition,
+  pricingConditionOverride: ownedCards.pricingConditionOverride,
   finishVariant: ownedCards.finishVariant,
   sealed: ownedCards.sealed,
   imageProvider: cardPrintings.imageProvider,
@@ -632,6 +634,7 @@ export class CollectionRepository {
     const patch: {
       quantity?: number;
       condition?: string | null;
+      pricingConditionOverride?: MarketCondition | null;
       finishVariant?: string | null;
       sealed?: boolean;
       notes?: string | null;
@@ -642,6 +645,9 @@ export class CollectionRepository {
 
     if (input.quantity !== undefined) patch.quantity = input.quantity;
     if (input.condition !== undefined) patch.condition = input.condition;
+    if (input.pricingConditionOverride !== undefined) {
+      patch.pricingConditionOverride = input.pricingConditionOverride;
+    }
     if (input.finishVariant !== undefined)
       patch.finishVariant = input.finishVariant;
     if (input.sealed !== undefined) patch.sealed = input.sealed;

@@ -5,6 +5,7 @@ import { useRouter } from "next/navigation";
 import { type FormEvent, useEffect, useState } from "react";
 
 import type { Profile } from "@/lib/types/profile";
+import { MARKET_CONDITIONS } from "@/lib/pricing/conditions";
 
 const STORAGE_KEY = "cardboardex.selectedProfile";
 
@@ -156,6 +157,48 @@ export function ProfileSwitcher({
     }
   }
 
+  async function updateDefaultPricingCondition(
+    event: FormEvent<HTMLFormElement>,
+  ) {
+    event.preventDefault();
+    setBusy(true);
+    setError(null);
+    const defaultPricingCondition =
+      new FormData(event.currentTarget)
+        .get("defaultPricingCondition")
+        ?.toString() ?? "";
+
+    try {
+      const response = await fetch(
+        `/api/profiles/${encodeURIComponent(activeProfile.slug)}`,
+        {
+          method: "PATCH",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ defaultPricingCondition }),
+        },
+      );
+      const result = (await response.json()) as ProfileResult;
+      if (!response.ok) {
+        throw new Error(result.error ?? "Pricing preference update failed.");
+      }
+
+      setProfiles((current) =>
+        current.map((profile) =>
+          profile.slug === activeProfile.slug ? result : profile,
+        ),
+      );
+      router.refresh();
+    } catch (caught) {
+      setError(
+        caught instanceof Error
+          ? caught.message
+          : "Pricing preference update failed.",
+      );
+    } finally {
+      setBusy(false);
+    }
+  }
+
   async function duplicateProfile(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
     setBusy(true);
@@ -289,6 +332,35 @@ export function ProfileSwitcher({
               />
               <button className="button button--small" disabled={busy}>
                 Rename
+              </button>
+            </div>
+          </form>
+          <form
+            className="profile-manager__pricing"
+            onSubmit={(event) => void updateDefaultPricingCondition(event)}
+          >
+            <label htmlFor="default-pricing-condition">
+              Pricing when condition is unknown
+            </label>
+            <small>
+              This is a valuation assumption only. It does not change any
+              card&apos;s recorded condition.
+            </small>
+            <div>
+              <select
+                id="default-pricing-condition"
+                key={`${activeProfile.slug}:${activeProfile.defaultPricingCondition}`}
+                name="defaultPricingCondition"
+                defaultValue={activeProfile.defaultPricingCondition}
+              >
+                {MARKET_CONDITIONS.map((condition) => (
+                  <option key={condition} value={condition}>
+                    {condition}
+                  </option>
+                ))}
+              </select>
+              <button className="button button--small" disabled={busy}>
+                Save
               </button>
             </div>
           </form>

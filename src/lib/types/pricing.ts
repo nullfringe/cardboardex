@@ -1,3 +1,5 @@
+import type { MarketCondition } from "@/lib/pricing/conditions";
+
 export type PriceBasis = "market" | "mid" | "low" | "high" | "direct-low";
 
 export type MarketPriceEstimate = {
@@ -6,7 +8,11 @@ export type MarketPriceEstimate = {
   ownedCardId: number | null;
   provider: string;
   providerProductId: string | null;
+  providerSkuId: string | null;
   providerVariant: string | null;
+  priceCondition: MarketCondition | null;
+  conditionAssumed: boolean;
+  conditionOverridden: boolean;
   currency: string;
   unitAmountMinor: number;
   basis: PriceBasis;
@@ -29,6 +35,9 @@ export type ProfileValuationSummary = {
   totalEntries: number;
   valuedPhysicalCards: number;
   totalPhysicalCards: number;
+  assumedEntries: number;
+  assumedPhysicalCards: number;
+  defaultPricingCondition: MarketCondition;
 };
 
 export type SetManualPriceEstimateInput = {
@@ -40,7 +49,9 @@ export type ProviderPriceObservation = {
   printingId: number;
   provider: string;
   providerProductId: string;
+  providerSkuId: string | null;
   providerVariant: string;
+  priceCondition: MarketCondition | null;
   currency: string;
   marketPriceMinor: number | null;
   lowPriceMinor: number | null;

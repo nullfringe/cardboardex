@@ -2,6 +2,7 @@ import { z } from "zod";
 
 import { getDatabase, type AppDatabase } from "@/db/client";
 import { applyCardImagePolicy } from "@/lib/images/card-image-provider";
+import { MARKET_CONDITIONS } from "@/lib/pricing/conditions";
 import { CollectionRepository } from "@/lib/repositories/collection-repository";
 import { PricingRepository } from "@/lib/repositories/pricing-repository";
 import { ProfileRepository } from "@/lib/repositories/profile-repository";
@@ -121,6 +122,7 @@ export const updateOwnedCardSchema = z
   .object({
     quantity: z.number().int().positive().max(1_000_000).optional(),
     condition: nullableText("Condition", 200),
+    pricingConditionOverride: z.enum(MARKET_CONDITIONS).nullable().optional(),
     finishVariant: nullableText("Finish / variant", 500),
     sealed: z.boolean().optional(),
     notes: nullableText("Notes"),
@@ -130,6 +132,7 @@ export const updateOwnedCardSchema = z
     (value) =>
       value.quantity !== undefined ||
       value.condition !== undefined ||
+      value.pricingConditionOverride !== undefined ||
       value.finishVariant !== undefined ||
       value.sealed !== undefined ||
       value.notes !== undefined,
@@ -283,12 +286,12 @@ export class CollectionService {
     private readonly pricing: PricingRepository,
   ) {}
 
-  private profileId(profileSlug: string): number {
+  private profile(profileSlug: string) {
     const profile = this.profiles.getBySlug(
       profileSlugSchema.parse(profileSlug),
     );
     if (!profile) throw new ProfileNotFoundError();
-    return profile.id;
+    return profile;
   }
 
   listCollection(
@@ -298,10 +301,10 @@ export class CollectionService {
     const parsed = collectionListQuerySchema.parse(
       query,
     ) as CollectionListQuery;
+    const profile = this.profile(profileSlug);
     return this.pricing.attachEstimates(
-      this.repository
-        .list(this.profileId(profileSlug), parsed)
-        .map(applyCardImagePolicy),
+      this.repository.list(profile.id, parsed).map(applyCardImagePolicy),
+      profile.defaultPricingCondition,
     );
   }
 
@@ -309,18 +312,22 @@ export class CollectionService {
     profileSlug: string,
     ownedCardId: number,
   ): CollectionDetail | null {
+    const profile = this.profile(profileSlug);
     const detail = this.repository.getDetail(
-      this.profileId(profileSlug),
+      profile.id,
       positiveId(ownedCardId),
     );
     if (!detail) return null;
     return (
-      this.pricing.attachEstimates([applyCardImagePolicy(detail)])[0] ?? null
+      this.pricing.attachEstimates(
+        [applyCardImagePolicy(detail)],
+        profile.defaultPricingCondition,
+      )[0] ?? null
     );
   }
 
   getCollectionFacets(profileSlug: string): CollectionFacets {
-    return this.repository.getFacets(this.profileId(profileSlug));
+    return this.repository.getFacets(this.profile(profileSlug).id);
   }
 
   updateOwnedCard(
@@ -329,20 +336,24 @@ export class CollectionService {
     input: UpdateOwnedCardInput,
   ): CollectionDetail | null {
     const parsed = updateOwnedCardSchema.parse(input) as UpdateOwnedCardInput;
+    const profile = this.profile(profileSlug);
     const detail = this.repository.updateOwnedCard(
-      this.profileId(profileSlug),
+      profile.id,
       positiveId(ownedCardId),
       parsed,
     );
     if (!detail) return null;
     return (
-      this.pricing.attachEstimates([applyCardImagePolicy(detail)])[0] ?? null
+      this.pricing.attachEstimates(
+        [applyCardImagePolicy(detail)],
+        profile.defaultPricingCondition,
+      )[0] ?? null
     );
   }
 
   deleteCollectionEntry(profileSlug: string, ownedCardId: number): boolean {
     return this.repository.deleteOwnedCard(
-      this.profileId(profileSlug),
+      this.profile(profileSlug).id,
       positiveId(ownedCardId),
     );
   }
@@ -354,10 +365,16 @@ export class CollectionService {
     const parsed = createCollectionEntrySchema.parse(
       input,
     ) as CreateCollectionEntryInput;
+    const profile = this.profile(profileSlug);
     const detail = applyCardImagePolicy(
-      this.repository.create(this.profileId(profileSlug), parsed),
+      this.repository.create(profile.id, parsed),
     );
-    return this.pricing.attachEstimates([detail])[0] ?? detail;
+    return (
+      this.pricing.attachEstimates(
+        [detail],
+        profile.defaultPricingCondition,
+      )[0] ?? detail
+    );
   }
 }
 

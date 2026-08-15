@@ -24,6 +24,7 @@ import {
   estimateLotValue,
   formatMoney,
 } from "@/lib/pricing/money";
+import { abbreviatedMarketCondition } from "@/lib/pricing/conditions";
 import type { ProfileValuationSummary } from "@/lib/types/pricing";
 import type { Profile } from "@/lib/types/profile";
 import { languageBadge } from "@/lib/languages";
@@ -215,6 +216,7 @@ function CollectionCard({ item }: { item: CollectionListItem }) {
   const lotValue = item.marketEstimate
     ? estimateLotValue(item.marketEstimate, item.quantity)
     : null;
+  const estimateCondition = item.marketEstimate?.priceCondition;
   return (
     <Link
       className="card-tile"
@@ -269,12 +271,23 @@ function CollectionCard({ item }: { item: CollectionListItem }) {
             className="card-tile__value"
             title={
               item.quantity > 1
-                ? `${formatMoney(item.marketEstimate.unitAmountMinor, item.marketEstimate.currency)} per card × ${item.quantity}`
-                : "Ungraded per-card market estimate"
+                ? `${formatMoney(item.marketEstimate.unitAmountMinor, item.marketEstimate.currency)} per card × ${item.quantity}${estimateCondition ? ` · ${estimateCondition}${item.marketEstimate.conditionOverridden ? " per-card override" : item.marketEstimate.conditionAssumed ? " profile assumption" : ""}` : " · condition-unadjusted"}`
+                : `Ungraded per-card market estimate · ${estimateCondition ? `${estimateCondition}${item.marketEstimate.conditionOverridden ? " per-card override" : item.marketEstimate.conditionAssumed ? " profile assumption" : ""}` : "condition-unadjusted"}`
             }
           >
             {formatMoney(lotValue, item.marketEstimate.currency)} est.
             {item.quantity > 1 ? <small> lot</small> : null}
+            {estimateCondition ? (
+              <small>
+                {" "}
+                {abbreviatedMarketCondition(estimateCondition)}
+                {item.marketEstimate.conditionOverridden
+                  ? " override"
+                  : item.marketEstimate.conditionAssumed
+                    ? "*"
+                    : ""}
+              </small>
+            ) : null}
           </p>
         ) : null}
         <div className="card-tile__tags">
@@ -357,30 +370,41 @@ export function CollectionBrowser({
           <p className="eyebrow">{profile.name}</p>
           <h1 id="collection-title">The cards you own.</h1>
         </div>
-        <dl className="collection-counts" aria-label="Collection totals">
-          <div>
-            <dt>Printings</dt>
-            <dd>{initialItems.length}</dd>
-          </div>
-          <div>
-            <dt>Physical cards</dt>
-            <dd>{totalCards}</dd>
-          </div>
-          <div>
-            <dt>Est. value</dt>
-            <dd>
-              {valuation.valuedEntries > 0
-                ? formatMoney(valuation.estimatedValueMinor, valuation.currency)
-                : "—"}
-            </dd>
-          </div>
-          <div title="Owned entries with an exact or manual estimate">
-            <dt>Valued</dt>
-            <dd>
-              {valuation.valuedEntries}/{valuation.totalEntries}
-            </dd>
-          </div>
-        </dl>
+        <div className="collection-valuation-summary">
+          <dl className="collection-counts" aria-label="Collection totals">
+            <div>
+              <dt>Printings</dt>
+              <dd>{initialItems.length}</dd>
+            </div>
+            <div>
+              <dt>Physical cards</dt>
+              <dd>{totalCards}</dd>
+            </div>
+            <div>
+              <dt>Est. value</dt>
+              <dd>
+                {valuation.valuedEntries > 0
+                  ? formatMoney(
+                      valuation.estimatedValueMinor,
+                      valuation.currency,
+                    )
+                  : "—"}
+              </dd>
+            </div>
+            <div title="Owned entries with an exact or manual estimate">
+              <dt>Valued</dt>
+              <dd>
+                {valuation.valuedEntries}/{valuation.totalEntries}
+              </dd>
+            </div>
+          </dl>
+          {valuation.assumedEntries > 0 ? (
+            <small className="collection-valuation-summary__assumption">
+              * {valuation.assumedEntries} valued entries use the profile&apos;s{" "}
+              {valuation.defaultPricingCondition} assumption.
+            </small>
+          ) : null}
+        </div>
       </section>
 
       <section className="browser-controls" aria-label="Browse collection">

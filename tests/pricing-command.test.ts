@@ -23,6 +23,8 @@ describe("prices:sync command", () => {
         totalPrintings: 3,
         attempted: 3,
         priced: 1,
+        conditionPriced: 1,
+        conditionUnresolved: 0,
         newObservations: 1,
         unchangedObservations: 0,
         unresolved: 1,

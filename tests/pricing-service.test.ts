@@ -6,6 +6,7 @@ import { runMigrations } from "@/db/migrate";
 import { marketPriceObservations } from "@/db/schema";
 import { createCollectionService } from "@/lib/services/collection-service";
 import { createPricingService } from "@/lib/services/pricing-service";
+import { createProfileService } from "@/lib/services/profile-service";
 
 describe("collection market valuation", () => {
   let connection: DatabaseConnection;
@@ -58,11 +59,16 @@ describe("collection market valuation", () => {
     expect(item.marketEstimate).toMatchObject({
       unitAmountMinor: 250,
       manual: false,
+      priceCondition: null,
+      conditionAssumed: false,
     });
     expect(pricing.summarize([item])).toMatchObject({
       estimatedValueMinor: 500,
       valuedEntries: 1,
       valuedPhysicalCards: 2,
+      assumedEntries: 0,
+      assumedPhysicalCards: 0,
+      defaultPricingCondition: "Lightly Played",
     });
 
     collection.updateOwnedCard("my-collection", created.ownedCardId, {
@@ -103,6 +109,128 @@ describe("collection market valuation", () => {
     expect(
       collection.listCollection("my-collection")[0]!.marketEstimate,
     ).toMatchObject({ unitAmountMinor: 250, manual: false });
+  });
+
+  it("uses exact card conditions and a configurable profile assumption for unknown conditions", () => {
+    const collection = createCollectionService(connection.db);
+    const pricing = createPricingService(connection.db);
+    const profiles = createProfileService(connection.db);
+    const created = collection.createCollectionEntry("my-collection", {
+      gameSlug: "pokemon-tcg",
+      gameName: "Pokémon TCG",
+      setCode: "TST",
+      setName: "Test Set",
+      name: "Condition Test Pokémon",
+      collectorNumber: "002/100",
+      cardKind: "Pokémon",
+      quantity: 2,
+    });
+
+    for (const [index, condition, marketPriceMinor] of [
+      [1, "Near Mint", 250],
+      [2, "Lightly Played", 180],
+      [3, "Moderately Played", 125],
+    ] as const) {
+      connection.db
+        .insert(marketPriceObservations)
+        .values({
+          printingId: created.printingId,
+          ownedCardId: null,
+          provider: "tcgplayer-marketplace",
+          providerProductId: "7002",
+          providerSkuId: `720${index}`,
+          providerVariant: "Normal",
+          priceCondition: condition,
+          currency: "USD",
+          marketPriceMinor,
+          lowPriceMinor: null,
+          midPriceMinor: null,
+          highPriceMinor: null,
+          directLowPriceMinor: null,
+          observationType: "provider",
+          observationKey: `condition-test-${index}`,
+          sourceUrl: "https://www.tcgplayer.com/product/7002/test",
+          sourceUpdatedAt: null,
+          firstSeenAt: "2026-08-14T20:00:00.000Z",
+          lastSeenAt: "2026-08-14T20:00:00.000Z",
+          note: null,
+        })
+        .run();
+    }
+
+    let item = collection.listCollection("my-collection")[0]!;
+    expect(item.condition).toBeNull();
+    expect(item.marketEstimate).toMatchObject({
+      unitAmountMinor: 180,
+      priceCondition: "Lightly Played",
+      conditionAssumed: true,
+      conditionOverridden: false,
+    });
+    expect(pricing.summarize([item], "Lightly Played")).toMatchObject({
+      estimatedValueMinor: 360,
+      assumedEntries: 1,
+      assumedPhysicalCards: 2,
+      defaultPricingCondition: "Lightly Played",
+    });
+
+    profiles.updateProfile("my-collection", {
+      defaultPricingCondition: "Moderately Played",
+    });
+    item = collection.listCollection("my-collection")[0]!;
+    expect(item.condition).toBeNull();
+    expect(item.marketEstimate).toMatchObject({
+      unitAmountMinor: 125,
+      priceCondition: "Moderately Played",
+      conditionAssumed: true,
+      conditionOverridden: false,
+    });
+
+    collection.updateOwnedCard("my-collection", created.ownedCardId, {
+      condition: "Moderately Played",
+      pricingConditionOverride: "Near Mint",
+    });
+    item = collection.listCollection("my-collection")[0]!;
+    expect(item).toMatchObject({
+      condition: "Moderately Played",
+      pricingConditionOverride: "Near Mint",
+    });
+    expect(item.marketEstimate).toMatchObject({
+      unitAmountMinor: 250,
+      priceCondition: "Near Mint",
+      conditionAssumed: false,
+      conditionOverridden: true,
+    });
+
+    pricing.setManualEstimate("my-collection", created.ownedCardId, {
+      amount: "9.99",
+    });
+    expect(
+      collection.listCollection("my-collection")[0]!.marketEstimate,
+    ).toMatchObject({
+      unitAmountMinor: 999,
+      manual: true,
+      conditionOverridden: false,
+    });
+    pricing.clearManualEstimate("my-collection", created.ownedCardId);
+    expect(
+      collection.listCollection("my-collection")[0]!.marketEstimate,
+    ).toMatchObject({
+      unitAmountMinor: 250,
+      priceCondition: "Near Mint",
+      conditionOverridden: true,
+    });
+
+    collection.updateOwnedCard("my-collection", created.ownedCardId, {
+      pricingConditionOverride: null,
+    });
+    item = collection.listCollection("my-collection")[0]!;
+    expect(item.pricingConditionOverride).toBeNull();
+    expect(item.marketEstimate).toMatchObject({
+      unitAmountMinor: 125,
+      priceCondition: "Moderately Played",
+      conditionAssumed: false,
+      conditionOverridden: false,
+    });
   });
 
   it("rejects imprecise or malformed manual amounts", () => {

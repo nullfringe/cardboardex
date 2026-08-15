@@ -14,6 +14,7 @@ import {
   type MarketPriceFetch,
 } from "@/lib/pricing/tcgcsv-market-pricing";
 import { resolveTcgDexMarketProduct } from "@/lib/pricing/tcgdex-market-product";
+import { createTcgplayerConditionPricingClient } from "@/lib/pricing/tcgplayer-condition-pricing";
 import type { ProviderPriceObservation } from "@/lib/types/pricing";
 
 const DEFAULT_PRINTING_DELAY_MS = 150;
@@ -29,6 +30,8 @@ export type MarketPriceSyncResult = {
   totalPrintings: number;
   attempted: number;
   priced: number;
+  conditionPriced: number;
+  conditionUnresolved: number;
   newObservations: number;
   unchangedObservations: number;
   unresolved: number;
@@ -43,6 +46,7 @@ export type MarketPriceSyncOptions = {
   timeoutMs?: number;
   requestDelayMs?: number;
   tcgCsvRequestIntervalMs?: number;
+  tcgplayerRequestIntervalMs?: number;
   now?: () => Date;
 };
 
@@ -65,7 +69,9 @@ function sameObservation(
   return (
     existing.provider === candidate.provider &&
     existing.providerProductId === candidate.providerProductId &&
+    existing.providerSkuId === candidate.providerSkuId &&
     existing.providerVariant === candidate.providerVariant &&
+    existing.priceCondition === candidate.priceCondition &&
     existing.currency === candidate.currency &&
     existing.marketPriceMinor === candidate.marketPriceMinor &&
     existing.lowPriceMinor === candidate.lowPriceMinor &&
@@ -88,6 +94,12 @@ function latestProviderObservation(
         eq(marketPriceObservations.provider, candidate.provider),
         isNull(marketPriceObservations.ownedCardId),
         eq(marketPriceObservations.observationType, "provider"),
+        candidate.priceCondition === null
+          ? isNull(marketPriceObservations.priceCondition)
+          : eq(
+              marketPriceObservations.priceCondition,
+              candidate.priceCondition,
+            ),
       ),
     )
     .orderBy(desc(marketPriceObservations.id))
@@ -181,6 +193,8 @@ export async function syncMarketPrices(
     totalPrintings: printings.length,
     attempted: 0,
     priced: 0,
+    conditionPriced: 0,
+    conditionUnresolved: 0,
     newObservations: 0,
     unchangedObservations: 0,
     unresolved: 0,
@@ -194,6 +208,11 @@ export async function syncMarketPrices(
     requestIntervalMs: options.tcgCsvRequestIntervalMs,
   });
   const observedAt = (options.now ?? (() => new Date()))().toISOString();
+  const conditionPricingClient = createTcgplayerConditionPricingClient({
+    fetchImpl: options.fetchImpl,
+    timeoutMs: options.timeoutMs,
+    requestIntervalMs: options.tcgplayerRequestIntervalMs,
+  });
   let attemptedPrinting = false;
 
   for (const printing of printings) {
@@ -261,13 +280,40 @@ export async function syncMarketPrices(
 
       const status = persistObservation(
         db,
-        { printingId: printing.printingId, ...price },
+        {
+          printingId: printing.printingId,
+          ...price,
+          providerSkuId: null,
+          priceCondition: null,
+        },
         observedAt,
         result.dryRun,
       );
       result.priced += 1;
       if (status === "new") result.newObservations += 1;
       else result.unchangedObservations += 1;
+
+      const conditionPrices = await conditionPricingClient.resolvePrices({
+        languageCode: printing.languageCode,
+        providerProductId: price.providerProductId,
+        providerVariant: price.providerVariant,
+        sourceUrl: price.sourceUrl,
+      });
+      if (conditionPrices.length === 0) {
+        result.conditionUnresolved += 1;
+      } else {
+        result.conditionPriced += 1;
+        for (const conditionPrice of conditionPrices) {
+          const conditionStatus = persistObservation(
+            db,
+            { printingId: printing.printingId, ...conditionPrice },
+            observedAt,
+            result.dryRun,
+          );
+          if (conditionStatus === "new") result.newObservations += 1;
+          else result.unchangedObservations += 1;
+        }
+      }
     } catch (error) {
       result.failed += 1;
       result.issues.push({

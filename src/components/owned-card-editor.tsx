@@ -5,6 +5,10 @@ import { useRouter } from "next/navigation";
 import { type FormEvent, useState } from "react";
 
 import { formatMoney } from "@/lib/pricing/money";
+import {
+  MARKET_CONDITIONS,
+  type MarketCondition,
+} from "@/lib/pricing/conditions";
 
 import type {
   CollectionDetail,
@@ -19,6 +23,7 @@ type OwnedCardEditorProps = {
     | "name"
     | "quantity"
     | "condition"
+    | "pricingConditionOverride"
     | "finishVariant"
     | "sealed"
     | "notes"
@@ -37,6 +42,9 @@ export function OwnedCardEditor({ card }: OwnedCardEditorProps) {
   const router = useRouter();
   const [quantity, setQuantity] = useState(String(card.quantity));
   const [condition, setCondition] = useState(card.condition ?? "");
+  const [pricingConditionOverride, setPricingConditionOverride] = useState<
+    MarketCondition | ""
+  >(card.pricingConditionOverride ?? "");
   const [finishVariant, setFinishVariant] = useState(card.finishVariant ?? "");
   const [sealed, setSealed] = useState(card.sealed);
   const [notes, setNotes] = useState(card.notes ?? "");
@@ -75,6 +83,7 @@ export function OwnedCardEditor({ card }: OwnedCardEditorProps) {
     const payload: UpdateOwnedCardInput = {
       quantity: parsedQuantity,
       condition: blankToNull(condition),
+      pricingConditionOverride: pricingConditionOverride || null,
       finishVariant: blankToNull(finishVariant),
       sealed,
       notes: blankToNull(notes),
@@ -253,6 +262,28 @@ export function OwnedCardEditor({ card }: OwnedCardEditorProps) {
             </datalist>
           </label>
         </div>
+        <label className="field">
+          <span className="field__label">Automatic pricing condition</span>
+          <select
+            value={pricingConditionOverride}
+            onChange={(event) =>
+              setPricingConditionOverride(
+                event.target.value as MarketCondition | "",
+              )
+            }
+          >
+            <option value="">Use recorded condition or profile default</option>
+            {MARKET_CONDITIONS.map((marketCondition) => (
+              <option key={marketCondition} value={marketCondition}>
+                {marketCondition}
+              </option>
+            ))}
+          </select>
+          <small className="field__help">
+            Optional valuation-only override. This does not change the card
+            condition recorded above.
+          </small>
+        </label>
         <label className="field">
           <span className="field__label">Finish / variant</span>
           <input

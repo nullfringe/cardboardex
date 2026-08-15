@@ -29,7 +29,7 @@ function cardInput(
 }
 
 function syncFetch(marketPrice: number): MarketPriceFetch {
-  return vi.fn<MarketPriceFetch>(async (input) => {
+  return vi.fn<MarketPriceFetch>(async (input, init) => {
     const response = (value: unknown) =>
       new Response(JSON.stringify(value), {
         status: 200,
@@ -85,6 +85,61 @@ function syncFetch(marketPrice: number): MarketPriceFetch {
         ],
       });
     }
+    if (
+      input === "https://mp-search-api.tcgplayer.com/v2/product/7001/details"
+    ) {
+      return response({
+        productId: 7001,
+        skus: [
+          {
+            sku: 7101,
+            language: "English",
+            condition: "Near Mint",
+            variant: "Normal",
+          },
+          {
+            sku: 7102,
+            language: "English",
+            condition: "Lightly Played",
+            variant: "Normal",
+          },
+          {
+            sku: 7103,
+            language: "English",
+            condition: "Moderately Played",
+            variant: "Normal",
+          },
+          {
+            sku: 7104,
+            language: "English",
+            condition: "Heavily Played",
+            variant: "Normal",
+          },
+          {
+            sku: 7105,
+            language: "English",
+            condition: "Damaged",
+            variant: "Normal",
+          },
+        ],
+      });
+    }
+    if (
+      input ===
+      "https://mpgateway.tcgplayer.com/v1/pricepoints/marketprice/skus/search"
+    ) {
+      expect(init?.method).toBe("POST");
+      expect(JSON.parse(String(init?.body))).toEqual({
+        skuIds: [7101, 7102, 7103, 7104, 7105],
+      });
+      return response([
+        { skuId: 7101, marketPrice: 0.4 },
+        { skuId: 7102, marketPrice: 0.3 },
+        { skuId: 7103, marketPrice: 0.2 },
+        { skuId: 7104, marketPrice: 0.1 },
+        { skuId: 7105, marketPrice: 0.05 },
+      ]);
+    }
     throw new Error(`Unexpected test URL: ${input}`);
   });
 }
@@ -107,6 +162,7 @@ describe("market price sync", () => {
     const options = {
       requestDelayMs: 0,
       tcgCsvRequestIntervalMs: 0,
+      tcgplayerRequestIntervalMs: 0,
     };
     const dryRun = await syncMarketPrices(connection.db, {
       ...options,
@@ -116,7 +172,9 @@ describe("market price sync", () => {
     });
     expect(dryRun).toMatchObject({
       priced: 1,
-      newObservations: 1,
+      conditionPriced: 1,
+      conditionUnresolved: 0,
+      newObservations: 6,
       unchangedObservations: 0,
       dryRun: true,
     });
@@ -134,7 +192,9 @@ describe("market price sync", () => {
     });
     expect(first).toMatchObject({
       priced: 1,
-      newObservations: 1,
+      conditionPriced: 1,
+      conditionUnresolved: 0,
+      newObservations: 6,
       unchangedObservations: 0,
     });
 
@@ -146,14 +206,14 @@ describe("market price sync", () => {
     expect(second).toMatchObject({
       priced: 1,
       newObservations: 0,
-      unchangedObservations: 1,
+      unchangedObservations: 6,
     });
     expect(
       connection.db
         .select({ count: count() })
         .from(marketPriceObservations)
         .get()?.count,
-    ).toBe(1);
+    ).toBe(6);
     expect(
       connection.db.select().from(marketPriceObservations).get()?.lastSeenAt,
     ).toBe("2026-08-14T20:02:00.000Z");
@@ -169,11 +229,16 @@ describe("market price sync", () => {
         .select({ count: count() })
         .from(marketPriceObservations)
         .get()?.count,
-    ).toBe(2);
+    ).toBe(7);
     expect(
       createCollectionService(connection.db).listCollection("my-collection")[0]
         ?.marketEstimate,
-    ).toMatchObject({ unitAmountMinor: 35, basis: "market" });
+    ).toMatchObject({
+      unitAmountMinor: 30,
+      basis: "market",
+      priceCondition: "Lightly Played",
+      conditionAssumed: true,
+    });
   });
 
   it("reports an unmatched printing as unresolved without writing a guess", async () => {
@@ -190,10 +255,12 @@ describe("market price sync", () => {
       fetchImpl: syncFetch(0.2),
       requestDelayMs: 0,
       tcgCsvRequestIntervalMs: 0,
+      tcgplayerRequestIntervalMs: 0,
     });
     expect(result).toMatchObject({
       totalPrintings: 2,
       priced: 1,
+      conditionPriced: 1,
       unresolved: 1,
       failed: 0,
     });

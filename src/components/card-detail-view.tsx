@@ -41,6 +41,7 @@ function Fact({
 function providerLabel(provider: string): string {
   if (provider === "manual") return "Manual estimate";
   if (provider === "tcgcsv-tcgplayer") return "TCGplayer via TCGCSV";
+  if (provider === "tcgplayer-marketplace") return "TCGplayer";
   return provider;
 }
 
@@ -269,6 +270,14 @@ export function CardDetailView({
                       value={card.marketEstimate.providerVariant}
                     />
                     <Fact
+                      label="Price condition"
+                      value={
+                        card.marketEstimate.priceCondition
+                          ? `${card.marketEstimate.priceCondition}${card.marketEstimate.conditionOverridden ? " (per-card override)" : card.marketEstimate.conditionAssumed ? " (profile assumption)" : ""}`
+                          : "Unspecified"
+                      }
+                    />
+                    <Fact
                       label="Checked"
                       value={observationDate(card.marketEstimate.lastSeenAt)}
                     />
@@ -294,17 +303,6 @@ export function CardDetailView({
                             )
                       }
                     />
-                    <Fact
-                      label="High"
-                      value={
-                        card.marketEstimate.highPriceMinor === null
-                          ? null
-                          : formatMoney(
-                              card.marketEstimate.highPriceMinor,
-                              card.marketEstimate.currency,
-                            )
-                      }
-                    />
                   </dl>
                   {card.marketEstimate.sourceUrl ? (
                     <a
@@ -324,8 +322,13 @@ export function CardDetailView({
                   ) : null}
                   {!card.marketEstimate.manual ? (
                     <p className="market-value__caveat">
-                      Ungraded market estimate. The provider price is not
-                      adjusted for this copy&apos;s condition.
+                      {card.marketEstimate.priceCondition
+                        ? card.marketEstimate.conditionOverridden
+                          ? `This ungraded estimate uses the per-card ${card.marketEstimate.priceCondition} pricing override; the recorded condition is unchanged.`
+                          : card.marketEstimate.conditionAssumed
+                            ? `The recorded condition is unknown, so this ungraded estimate uses the profile's ${card.marketEstimate.priceCondition} assumption.`
+                            : `Ungraded ${card.marketEstimate.priceCondition} market estimate based on this copy's recorded condition.`
+                        : "Condition-level pricing was unavailable, so this is an unadjusted product-level market reference."}
                     </p>
                   ) : null}
                 </>
