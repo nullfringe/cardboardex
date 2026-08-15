@@ -31,10 +31,12 @@ function jsonResponse(value: unknown, contentType = "application/json") {
 function pricingFetch({
   collectorNumber = "001/100",
   groupName = "TST: Test Set",
+  productRows,
   priceRows,
 }: {
   collectorNumber?: string;
   groupName?: string;
+  productRows?: Array<Record<string, unknown>>;
   priceRows?: Array<Record<string, unknown>>;
 } = {}) {
   return vi.fn<MarketPriceFetch>(async (input) => {
@@ -56,7 +58,7 @@ function pricingFetch({
       return jsonResponse({
         success: true,
         errors: [],
-        results: [
+        results: productRows ?? [
           {
             productId: 7001,
             name: "Test Pokémon",
@@ -113,11 +115,13 @@ describe("TCGCSV market pricing", () => {
       directLowPriceMinor: null,
       sourceUrl: "https://www.tcgplayer.com/product/7001/test-pokemon",
       sourceUpdatedAt: null,
+      pricingVariantAssumed: false,
+      productResolution: "catalog-match",
     });
     expect(fetchImpl).toHaveBeenCalledTimes(3);
   });
 
-  it("requires an exact collector number and unambiguous finish", async () => {
+  it("requires an exact collector number and uses Normal as an annotated unknown-finish fallback", async () => {
     const wrongNumber = createTcgCsvMarketPricingClient({
       fetchImpl: pricingFetch({ collectorNumber: "002/100" }),
       requestIntervalMs: 0,
@@ -139,7 +143,10 @@ describe("TCGCSV market pricing", () => {
     });
     await expect(
       multipleFinishes.resolvePrice({ ...identity, printingFinish: null }),
-    ).resolves.toBeNull();
+    ).resolves.toMatchObject({
+      providerVariant: "Normal",
+      pricingVariantAssumed: true,
+    });
     await expect(
       multipleFinishes.resolvePrice({
         ...identity,
@@ -148,6 +155,117 @@ describe("TCGCSV market pricing", () => {
     ).resolves.toMatchObject({
       providerVariant: "Reverse Holofoil",
       marketPriceMinor: 80,
+      pricingVariantAssumed: false,
+    });
+  });
+
+  it("normalizes harmless product-name formatting while retaining exact collector matching", async () => {
+    const client = createTcgCsvMarketPricingClient({
+      fetchImpl: pricingFetch({
+        productRows: [
+          {
+            productId: 7001,
+            name: "Test-Pokémon!",
+            cleanName: "Test Pokemon",
+            categoryId: 3,
+            groupId: 9001,
+            url: "https://www.tcgplayer.com/product/7001/test-pokemon",
+            extendedData: [
+              { name: "Card Number", value: "1 / 100" },
+              { name: "Rarity", value: "Common" },
+            ],
+          },
+        ],
+      }),
+      requestIntervalMs: 0,
+    });
+    await expect(client.resolvePrice(identity)).resolves.toMatchObject({
+      providerProductId: "7001",
+    });
+  });
+
+  it("accepts a unique modern set group with only a block-name prefix and zero-padded code difference", async () => {
+    const client = createTcgCsvMarketPricingClient({
+      fetchImpl: pricingFetch({
+        groupName: "ME2: Mega Evolution — Phantasmal Flames",
+      }),
+      requestIntervalMs: 0,
+    });
+    await expect(
+      client.resolvePrice({
+        ...identity,
+        setCode: "ME02",
+        setName: "Phantasmal Flames",
+      }),
+    ).resolves.toMatchObject({ providerProductId: "7001" });
+  });
+
+  it("does not choose between materially plausible product candidates", async () => {
+    const client = createTcgCsvMarketPricingClient({
+      fetchImpl: pricingFetch({
+        productRows: [7001, 7002].map((productId) => ({
+          productId,
+          name: "Test Pokémon",
+          categoryId: 3,
+          groupId: 9001,
+          extendedData: [
+            { name: "Number", value: "001/100" },
+            { name: "Rarity", value: "Common" },
+          ],
+        })),
+      }),
+      requestIntervalMs: 0,
+    });
+    await expect(client.resolvePrice(identity)).resolves.toBeNull();
+    await expect(client.resolvePriceDetailed(identity)).resolves.toMatchObject({
+      diagnostic: { code: "multiple-product-candidates" },
+    });
+  });
+
+  it("does not invent a default when unknown finishes have no ordinary subtype", async () => {
+    const client = createTcgCsvMarketPricingClient({
+      fetchImpl: pricingFetch({
+        priceRows: [
+          { productId: 7001, subTypeName: "Holofoil", marketPrice: 1.2 },
+          {
+            productId: 7001,
+            subTypeName: "Reverse Holofoil",
+            marketPrice: 0.8,
+          },
+        ],
+      }),
+      requestIntervalMs: 0,
+    });
+    await expect(
+      client.resolvePriceDetailed({ ...identity, printingFinish: null }),
+    ).resolves.toMatchObject({
+      price: null,
+      diagnostic: { code: "finish-subtype-ambiguous" },
+    });
+  });
+
+  it("keeps special and vintage printing variants strict", async () => {
+    const client = createTcgCsvMarketPricingClient({
+      fetchImpl: pricingFetch({
+        productRows: [
+          {
+            productId: 7001,
+            name: "Test Pokémon (1st Edition)",
+            cleanName: "Test Pokémon",
+            categoryId: 3,
+            groupId: 9001,
+            extendedData: [
+              { name: "Number", value: "001/100" },
+              { name: "Rarity", value: "Common" },
+            ],
+          },
+        ],
+      }),
+      requestIntervalMs: 0,
+    });
+    await expect(client.resolvePriceDetailed(identity)).resolves.toMatchObject({
+      price: null,
+      diagnostic: { code: "variant-mismatch" },
     });
   });
 

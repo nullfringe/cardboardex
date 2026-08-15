@@ -3,7 +3,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 import { createDatabaseConnection, type DatabaseConnection } from "@/db/client";
 import { runMigrations } from "@/db/migrate";
-import { marketPriceObservations } from "@/db/schema";
+import { marketProviderProducts, marketPriceObservations } from "@/db/schema";
 import type { MarketPriceFetch } from "@/lib/pricing/tcgcsv-market-pricing";
 import { syncMarketPrices } from "@/lib/pricing/sync-market-prices";
 import { createCollectionService } from "@/lib/services/collection-service";
@@ -28,7 +28,10 @@ function cardInput(
   };
 }
 
-function syncFetch(marketPrice: number): MarketPriceFetch {
+function syncFetch(
+  marketPrice: number,
+  productName = "Test Pokémon",
+): MarketPriceFetch {
   return vi.fn<MarketPriceFetch>(async (input, init) => {
     const response = (value: unknown) =>
       new Response(JSON.stringify(value), {
@@ -56,7 +59,7 @@ function syncFetch(marketPrice: number): MarketPriceFetch {
         results: [
           {
             productId: 7001,
-            name: "Test Pokémon",
+            name: productName,
             categoryId: 3,
             groupId: 9001,
             url: "https://www.tcgplayer.com/product/7001/test-pokemon",
@@ -263,10 +266,43 @@ describe("market price sync", () => {
       conditionPriced: 1,
       unresolved: 1,
       failed: 0,
+      unresolvedByReason: { "collector-number-mismatch": 1 },
     });
     expect(result.issues[0]).toMatchObject({
       name: "Missing Pokémon",
       outcome: "unresolved",
+      reason: "collector-number-mismatch",
     });
+  });
+
+  it("persists a confident provider product mapping and reuses it while identity is unchanged", async () => {
+    const options = {
+      requestDelayMs: 0,
+      tcgCsvRequestIntervalMs: 0,
+      tcgplayerRequestIntervalMs: 0,
+      now: () => new Date("2026-08-14T20:00:00.000Z"),
+    };
+    await syncMarketPrices(connection.db, {
+      ...options,
+      fetchImpl: syncFetch(0.2),
+    });
+    expect(
+      connection.db.select().from(marketProviderProducts).all(),
+    ).toMatchObject([
+      {
+        provider: "tcgcsv-tcgplayer",
+        providerProductId: "7001",
+        resolutionMethod: "catalog-match",
+      },
+    ]);
+
+    const reused = await syncMarketPrices(connection.db, {
+      ...options,
+      fetchImpl: syncFetch(0.2, "A different provider label"),
+    });
+    expect(reused).toMatchObject({ priced: 1, unresolved: 0, failed: 0 });
+    expect(
+      connection.db.select().from(marketProviderProducts).all(),
+    ).toHaveLength(1);
   });
 });

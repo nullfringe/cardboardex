@@ -64,6 +64,13 @@
       "when": 1786762800000,
       "tag": "0008_per_card_pricing_condition",
       "breakpoints": true
+    },
+    {
+      "idx": 9,
+      "version": "6",
+      "when": 1786766400000,
+      "tag": "0009_market_provider_products",
+      "breakpoints": true
     }
   ]
 }

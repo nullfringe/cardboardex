@@ -45,6 +45,12 @@ export function formatMarketPriceSyncResult(
     `${result.priced} priced: ${result.newObservations} ${result.dryRun ? "new projected" : "new"} observations, ${result.unchangedObservations} unchanged; ${result.unresolved} unresolved; ${result.failed} failed.`,
     `${result.conditionPriced} printings have condition-level prices; ${result.conditionUnresolved} have only a product-level reference.`,
   ];
+  const unresolvedReasons = Object.entries(result.unresolvedByReason);
+  if (unresolvedReasons.length > 0) {
+    lines.push(
+      `Unresolved by reason: ${unresolvedReasons.map(([reason, count]) => `${reason}=${count}`).join(", ")}.`,
+    );
+  }
   if (result.dryRun) {
     lines.push(
       "Dry run completed successfully; no price observations were written.",

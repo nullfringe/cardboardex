@@ -31,6 +31,7 @@ export type TcgCsvMarketPriceIdentity = {
   printingFinish: string | null;
   rarity?: string | null;
   exactTcgplayerProductId?: number | null;
+  exactTcgplayerProductResolution?: "tcgdex-exact" | "cached" | null;
 };
 
 export type TcgCsvMarketPrice = {
@@ -45,12 +46,40 @@ export type TcgCsvMarketPrice = {
   directLowPriceMinor: number | null;
   sourceUrl: string | null;
   sourceUpdatedAt: null;
+  pricingVariantAssumed: boolean;
+  productResolution: "tcgdex-exact" | "cached" | "catalog-match";
+};
+
+export type TcgCsvMarketPriceDiagnosticCode =
+  | "unsupported-game"
+  | "unsupported-language"
+  | "set-group-not-found"
+  | "set-group-ambiguous"
+  | "collector-number-missing"
+  | "collector-number-mismatch"
+  | "product-not-found"
+  | "product-name-mismatch"
+  | "variant-mismatch"
+  | "multiple-product-candidates"
+  | "no-usable-price-rows"
+  | "finish-subtype-mismatch"
+  | "finish-subtype-ambiguous";
+
+export type TcgCsvMarketPriceResolution = {
+  price: TcgCsvMarketPrice | null;
+  diagnostic: {
+    code: TcgCsvMarketPriceDiagnosticCode;
+    message: string;
+  } | null;
 };
 
 export type TcgCsvMarketPricingClient = {
   resolvePrice(
     identity: TcgCsvMarketPriceIdentity,
   ): Promise<TcgCsvMarketPrice | null>;
+  resolvePriceDetailed(
+    identity: TcgCsvMarketPriceIdentity,
+  ): Promise<TcgCsvMarketPriceResolution>;
 };
 
 type TcgCsvGroup = {
@@ -372,32 +401,54 @@ function normalizedGroupName(group: TcgCsvGroup): string {
     : name;
 }
 
+function normalizedSetCode(value: string): string {
+  return compactIdentifier(value).replace(/([a-z]+)0+(\d)/gu, "$1$2");
+}
+
+function compatibleSetNames(candidate: string, local: string): boolean {
+  if (candidate === local) return true;
+  // TCGPlayer commonly prefixes a modern expansion with its block name (for
+  // example, "Mega Evolution — Phantasmal Flames") while import sources store
+  // only the expansion name. Accept that one-way presentation difference only
+  // for a multi-word local name; the later collector-number and card-name
+  // checks still have to identify a unique product.
+  return local.split(" ").length >= 2 && candidate.endsWith(` ${local}`);
+}
+
 function selectEnglishGroup(
   groups: TcgCsvGroup[],
   identity: TcgCsvMarketPriceIdentity,
-): TcgCsvGroup | null {
+): { group: TcgCsvGroup | null; ambiguous: boolean } {
   const series = prizePackSeries(identity.printingVariantKey);
   if (series) {
     const phrase = `prize pack series ${series}`;
     const matches = groups.filter((group) =>
       normalizedText(group.name).includes(phrase),
     );
-    return matches.length === 1 ? (matches[0] ?? null) : null;
+    return {
+      group: matches.length === 1 ? (matches[0] ?? null) : null,
+      ambiguous: matches.length > 1,
+    };
   }
 
-  const code = compactIdentifier(identity.setCode);
+  const code = normalizedSetCode(identity.setCode);
   const setName = normalizedText(identity.setName);
   const strong = groups.filter(
     (group) =>
-      compactIdentifier(group.abbreviation) === code &&
-      normalizedGroupName(group) === setName,
+      normalizedSetCode(group.abbreviation) === code &&
+      compatibleSetNames(normalizedGroupName(group), setName),
   );
-  if (strong.length === 1) return strong[0] ?? null;
+  if (strong.length === 1)
+    return { group: strong[0] ?? null, ambiguous: false };
+  if (strong.length > 1) return { group: null, ambiguous: true };
 
-  const byName = groups.filter(
-    (group) => normalizedGroupName(group) === setName,
+  const byName = groups.filter((group) =>
+    compatibleSetNames(normalizedGroupName(group), setName),
   );
-  return byName.length === 1 ? (byName[0] ?? null) : null;
+  return {
+    group: byName.length === 1 ? (byName[0] ?? null) : null,
+    ambiguous: byName.length > 1,
+  };
 }
 
 function japaneseVintageGroupId(
@@ -466,32 +517,106 @@ function selectProduct(
   categoryId: number,
   groupId: number,
   identity: TcgCsvMarketPriceIdentity,
-): TcgCsvProduct | null {
+): {
+  product: TcgCsvProduct | null;
+  diagnostic: TcgCsvMarketPriceResolution["diagnostic"];
+} {
   const scoped = products.filter(
     (product) =>
       (product.categoryId === null || product.categoryId === categoryId) &&
       (product.groupId === null || product.groupId === groupId),
   );
+  if (scoped.length === 0) {
+    return {
+      product: null,
+      diagnostic: {
+        code: "product-not-found",
+        message: "The matched TCGPlayer set group exposes no products.",
+      },
+    };
+  }
   if (identity.exactTcgplayerProductId) {
     const exact = scoped.filter(
       (product) => product.productId === identity.exactTcgplayerProductId,
     );
-    return exact.length === 1 ? (exact[0] ?? null) : null;
+    return exact.length === 1
+      ? { product: exact[0] ?? null, diagnostic: null }
+      : {
+          product: null,
+          diagnostic: {
+            code: "collector-number-mismatch",
+            message:
+              "The previously resolved TCGPlayer product is absent from this set.",
+          },
+        };
   }
-  if (!identity.collectorNumber) return null;
+  if (!identity.collectorNumber) {
+    return {
+      product: null,
+      diagnostic: {
+        code: "collector-number-missing",
+        message:
+          "No collector number is available for strict product matching.",
+      },
+    };
+  }
   const collectorNumber = normalizedCollectorNumber(identity.collectorNumber);
   const rarity = identity.rarity ? normalizedText(identity.rarity) : null;
-  const matches = scoped.filter(
+  const collectorMatches = scoped.filter(
     (product) =>
-      productNameMatches(product, identity) &&
       product.collectorNumber !== null &&
-      normalizedCollectorNumber(product.collectorNumber) === collectorNumber &&
-      (!rarity ||
-        !product.rarity ||
-        normalizedText(product.rarity) === rarity) &&
-      productVariantMatches(product, identity.printingVariantKey),
+      normalizedCollectorNumber(product.collectorNumber) === collectorNumber,
   );
-  return matches.length === 1 ? (matches[0] ?? null) : null;
+  if (collectorMatches.length === 0) {
+    return {
+      product: null,
+      diagnostic: {
+        code: "collector-number-mismatch",
+        message:
+          "No TCGPlayer product in the matched set has this collector number.",
+      },
+    };
+  }
+  const named = collectorMatches.filter((product) =>
+    productNameMatches(product, identity),
+  );
+  if (named.length === 0) {
+    return {
+      product: null,
+      diagnostic: {
+        code: "product-name-mismatch",
+        message:
+          "Collector-number candidates did not match the card name after normalization.",
+      },
+    };
+  }
+  const rarityMatched = named.filter(
+    (product) =>
+      !rarity || !product.rarity || normalizedText(product.rarity) === rarity,
+  );
+  const variantMatched = rarityMatched.filter((product) =>
+    productVariantMatches(product, identity.printingVariantKey),
+  );
+  if (variantMatched.length === 0) {
+    return {
+      product: null,
+      diagnostic: {
+        code: "variant-mismatch",
+        message: "No collector-and-name match supports this printing variant.",
+      },
+    };
+  }
+  if (variantMatched.length > 1) {
+    return {
+      product: null,
+      diagnostic: {
+        code: "multiple-product-candidates",
+        message:
+          "Multiple TCGPlayer products remain plausible after strict matching.",
+      },
+    };
+  }
+  return { product: variantMatched[0] ?? null, diagnostic: null };
 }
 
 function desiredSubtype(printingFinish: string | null): string | null {
@@ -524,16 +649,70 @@ function selectPrice(
   prices: TcgCsvPrice[],
   productId: number,
   printingFinish: string | null,
-): TcgCsvPrice | null {
+): {
+  price: TcgCsvPrice | null;
+  pricingVariantAssumed: boolean;
+  diagnostic: TcgCsvMarketPriceResolution["diagnostic"];
+} {
   const candidates = prices.filter((price) => price.productId === productId);
+  if (candidates.length === 0) {
+    return {
+      price: null,
+      pricingVariantAssumed: false,
+      diagnostic: {
+        code: "no-usable-price-rows",
+        message: "The resolved TCGPlayer product has no usable price rows.",
+      },
+    };
+  }
   const desired = desiredSubtype(printingFinish);
   if (!desired) {
-    return candidates.length === 1 ? (candidates[0] ?? null) : null;
+    if (candidates.length === 1) {
+      return {
+        price: candidates[0] ?? null,
+        pricingVariantAssumed: false,
+        diagnostic: null,
+      };
+    }
+    const normal = candidates.filter((price) =>
+      subtypeMatches(price.subTypeName, "normal"),
+    );
+    if (normal.length === 1) {
+      return {
+        price: normal[0] ?? null,
+        pricingVariantAssumed: true,
+        diagnostic: null,
+      };
+    }
+    return {
+      price: null,
+      pricingVariantAssumed: false,
+      diagnostic: {
+        code: "finish-subtype-ambiguous",
+        message:
+          "The printing finish is unknown and no unique Normal or Regular price subtype is available.",
+      },
+    };
   }
   const matches = candidates.filter((price) =>
     subtypeMatches(price.subTypeName, desired),
   );
-  return matches.length === 1 ? (matches[0] ?? null) : null;
+  if (matches.length === 1) {
+    return {
+      price: matches[0] ?? null,
+      pricingVariantAssumed: false,
+      diagnostic: null,
+    };
+  }
+  return {
+    price: null,
+    pricingVariantAssumed: false,
+    diagnostic: {
+      code: "finish-subtype-mismatch",
+      message:
+        "No unique TCGPlayer price subtype matches the identified printing finish.",
+    },
+  };
 }
 
 function wait(milliseconds: number): Promise<void> {
@@ -634,47 +813,98 @@ export function createTcgCsvMarketPricingClient({
 
   return {
     async resolvePrice(identity) {
-      if (normalizedText(identity.gameSlug) !== "pokemon tcg") return null;
+      return (await this.resolvePriceDetailed(identity)).price;
+    },
+    async resolvePriceDetailed(identity) {
+      if (normalizedText(identity.gameSlug) !== "pokemon tcg") {
+        return {
+          price: null,
+          diagnostic: {
+            code: "unsupported-game",
+            message:
+              "TCGCSV market pricing currently supports Pokémon TCG only.",
+          },
+        };
+      }
       const categoryId = categoryIdForLanguage(identity.languageCode);
-      if (!categoryId) return null;
+      if (!categoryId) {
+        return {
+          price: null,
+          diagnostic: {
+            code: "unsupported-language",
+            message:
+              "TCGCSV market pricing does not support this card language.",
+          },
+        };
+      }
 
       let groupId: number | null;
+      let groupAmbiguous = false;
       if (categoryId === POKEMON_JAPAN_CATEGORY_ID) {
         groupId = japaneseVintageGroupId(identity);
       } else {
-        const group = selectEnglishGroup(
+        const groupResolution = selectEnglishGroup(
           await loadGroups(categoryId),
           identity,
         );
-        groupId = group?.groupId ?? null;
+        groupId = groupResolution.group?.groupId ?? null;
+        groupAmbiguous = groupResolution.ambiguous;
       }
-      if (!groupId) return null;
+      if (!groupId) {
+        return {
+          price: null,
+          diagnostic: {
+            code: groupAmbiguous
+              ? "set-group-ambiguous"
+              : "set-group-not-found",
+            message: groupAmbiguous
+              ? "More than one TCGPlayer set group matches this set identity."
+              : "No TCGPlayer set group matches this set identity.",
+          },
+        };
+      }
 
       const [products, prices] = await Promise.all([
         loadProducts(categoryId, groupId),
         loadPrices(categoryId, groupId),
       ]);
-      const product = selectProduct(products, categoryId, groupId, identity);
-      if (!product) return null;
-      const price = selectPrice(
+      const productResolution = selectProduct(
+        products,
+        categoryId,
+        groupId,
+        identity,
+      );
+      if (!productResolution.product) {
+        return { price: null, diagnostic: productResolution.diagnostic };
+      }
+      const priceResolution = selectPrice(
         prices,
-        product.productId,
+        productResolution.product.productId,
         identity.printingFinish,
       );
-      if (!price) return null;
+      if (!priceResolution.price) {
+        return { price: null, diagnostic: priceResolution.diagnostic };
+      }
 
       return {
-        provider: TCGCSV_TCGPLAYER_PRICE_PROVIDER,
-        providerProductId: String(product.productId),
-        providerVariant: price.subTypeName,
-        currency: "USD",
-        marketPriceMinor: price.marketPriceMinor,
-        lowPriceMinor: price.lowPriceMinor,
-        midPriceMinor: price.midPriceMinor,
-        highPriceMinor: price.highPriceMinor,
-        directLowPriceMinor: price.directLowPriceMinor,
-        sourceUrl: product.url,
-        sourceUpdatedAt: null,
+        price: {
+          provider: TCGCSV_TCGPLAYER_PRICE_PROVIDER,
+          providerProductId: String(productResolution.product.productId),
+          providerVariant: priceResolution.price.subTypeName,
+          currency: "USD",
+          marketPriceMinor: priceResolution.price.marketPriceMinor,
+          lowPriceMinor: priceResolution.price.lowPriceMinor,
+          midPriceMinor: priceResolution.price.midPriceMinor,
+          highPriceMinor: priceResolution.price.highPriceMinor,
+          directLowPriceMinor: priceResolution.price.directLowPriceMinor,
+          sourceUrl: productResolution.product.url,
+          sourceUpdatedAt: null,
+          pricingVariantAssumed: priceResolution.pricingVariantAssumed,
+          productResolution:
+            identity.exactTcgplayerProductResolution ??
+            (identity.exactTcgplayerProductId ? "cached" : "catalog-match"),
+        },
+        diagnostic: null,
       };
     },
   };

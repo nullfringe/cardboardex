@@ -380,6 +380,11 @@ export const marketPriceObservations = sqliteTable(
     providerProductId: text("provider_product_id"),
     providerSkuId: text("provider_sku_id"),
     providerVariant: text("provider_variant"),
+    pricingVariantAssumed: integer("pricing_variant_assumed", {
+      mode: "boolean",
+    })
+      .notNull()
+      .default(false),
     priceCondition: text("price_condition").$type<MarketCondition>(),
     currency: text("currency").notNull(),
     marketPriceMinor: integer("market_price_minor"),
@@ -460,6 +465,40 @@ export const marketPriceObservations = sqliteTable(
             OR ${table.midPriceMinor} IS NOT NULL
             OR ${table.highPriceMinor} IS NOT NULL
             OR ${table.directLowPriceMinor} IS NOT NULL))`,
+    ),
+  ],
+);
+
+export const marketProviderProducts = sqliteTable(
+  "market_provider_products",
+  {
+    id: integer("id").primaryKey({ autoIncrement: true }),
+    printingId: integer("printing_id")
+      .notNull()
+      .references(() => cardPrintings.id, {
+        onDelete: "cascade",
+        onUpdate: "cascade",
+      }),
+    provider: text("provider").notNull(),
+    providerProductId: text("provider_product_id").notNull(),
+    resolutionMethod: text("resolution_method").notNull(),
+    identityFingerprint: text("identity_fingerprint").notNull(),
+    sourceUrl: text("source_url"),
+    resolvedAt: text("resolved_at")
+      .notNull()
+      .default(sql`CURRENT_TIMESTAMP`),
+    updatedAt: text("updated_at")
+      .notNull()
+      .default(sql`CURRENT_TIMESTAMP`),
+  },
+  (table) => [
+    uniqueIndex("market_provider_products_printing_provider_unique").on(
+      table.printingId,
+      table.provider,
+    ),
+    index("market_provider_products_provider_product_index").on(
+      table.provider,
+      table.providerProductId,
     ),
   ],
 );

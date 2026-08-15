@@ -15,6 +15,7 @@ function estimate(
     providerProductId: "fixture-product",
     providerSkuId: null,
     providerVariant: "Normal",
+    pricingVariantAssumed: false,
     priceCondition: null,
     conditionAssumed: false,
     conditionOverridden: false,
