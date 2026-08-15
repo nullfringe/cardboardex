@@ -10,6 +10,7 @@ export type MarketPriceEstimate = {
   providerProductId: string | null;
   providerSkuId: string | null;
   providerVariant: string | null;
+  pricingVariantAssumed: boolean;
   priceCondition: MarketCondition | null;
   conditionAssumed: boolean;
   conditionOverridden: boolean;
@@ -51,6 +52,7 @@ export type ProviderPriceObservation = {
   providerProductId: string;
   providerSkuId: string | null;
   providerVariant: string;
+  pricingVariantAssumed: boolean;
   priceCondition: MarketCondition | null;
   currency: string;
   marketPriceMinor: number | null;

@@ -267,7 +267,11 @@ export function CardDetailView({
                     />
                     <Fact
                       label="Provider finish"
-                      value={card.marketEstimate.providerVariant}
+                      value={
+                        card.marketEstimate.providerVariant
+                          ? `${card.marketEstimate.providerVariant}${card.marketEstimate.pricingVariantAssumed ? " (fallback)" : ""}`
+                          : null
+                      }
                     />
                     <Fact
                       label="Price condition"
@@ -322,13 +326,15 @@ export function CardDetailView({
                   ) : null}
                   {!card.marketEstimate.manual ? (
                     <p className="market-value__caveat">
-                      {card.marketEstimate.priceCondition
-                        ? card.marketEstimate.conditionOverridden
-                          ? `This ungraded estimate uses the per-card ${card.marketEstimate.priceCondition} pricing override; the recorded condition is unchanged.`
-                          : card.marketEstimate.conditionAssumed
-                            ? `The recorded condition is unknown, so this ungraded estimate uses the profile's ${card.marketEstimate.priceCondition} assumption.`
-                            : `Ungraded ${card.marketEstimate.priceCondition} market estimate based on this copy's recorded condition.`
-                        : "Condition-level pricing was unavailable, so this is an unadjusted product-level market reference."}
+                      {card.marketEstimate.pricingVariantAssumed
+                        ? "The card's printing finish is unknown; this estimate uses TCGPlayer's ordinary Normal/Regular pricing variant as a fallback."
+                        : card.marketEstimate.priceCondition
+                          ? card.marketEstimate.conditionOverridden
+                            ? `This ungraded estimate uses the per-card ${card.marketEstimate.priceCondition} pricing override; the recorded condition is unchanged.`
+                            : card.marketEstimate.conditionAssumed
+                              ? `The recorded condition is unknown, so this ungraded estimate uses the profile's ${card.marketEstimate.priceCondition} assumption.`
+                              : `Ungraded ${card.marketEstimate.priceCondition} market estimate based on this copy's recorded condition.`
+                          : "Condition-level pricing was unavailable, so this is an unadjusted product-level market reference."}
                     </p>
                   ) : null}
                 </>

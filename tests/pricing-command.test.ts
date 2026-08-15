@@ -29,12 +29,14 @@ describe("prices:sync command", () => {
         unchangedObservations: 0,
         unresolved: 1,
         failed: 1,
+        unresolvedByReason: { "finish-subtype-ambiguous": 1 },
         dryRun: true,
         issues: [
           {
             printingId: 2,
             name: "Unknown Card",
             outcome: "unresolved",
+            reason: "finish-subtype-ambiguous",
             message: "No exact finish.",
           },
         ],
